@@ -43,22 +43,71 @@ userbot = Client(
 LINK_REGEX = r"(https?://\S+|t\.me/\S+)"
 
 # ================= USERBOT =================
+import json
+
+DATA_FILE = "data.json"
+PENDING_FILE = "pending_A.json"
+
+
+def load_json(file):
+    if not os.path.exists(file):
+        return {} if file == DATA_FILE else []
+    with open(file, "r") as f:
+        return json.load(f)
+
+
+def save_json(file, data):
+    with open(file, "w") as f:
+        json.dump(data, f, indent=4)
+
 
 @userbot.on_message(filters.chat(A_CHAT))
 async def detect_links(client, message: Message):
     try:
+
         logger.info(f"Message received in A_CHAT: {A_CHAT}")
 
         text = message.text or message.caption
 
-        if text:
-            links = re.findall(LINK_REGEX, text)
+        if not text:
+            return
 
-            if links:
-                logger.info(f"Links detected: {links}")
+        links = re.findall(LINK_REGEX, text)
+
+        if not links:
+            return
+
+        logger.info(f"Links detected: {links}")
+
+        # load files
+        data = load_json(DATA_FILE)
+        pending = load_json(PENDING_FILE)
+
+        msg_id = message.id
+
+        for link in links:
+
+            # save in data.json
+            data[str(msg_id)] = {
+                "A_MSG_ID": msg_id,
+                "A_MSG_LINK": link,
+                "C_MSG_ID": "",
+                "D_CHAT_LINK": ""
+            }
+
+            # add to pending list
+            pending.append(link)
+
+        save_json(DATA_FILE, data)
+        save_json(PENDING_FILE, pending)
+
+        logger.info("Data saved to JSON files")
 
     except Exception as e:
         logger.error(f"Link detection error: {e}")
+
+
+
 # ================= BOT =================
 
 @bot.on_message(filters.command("start"))
