@@ -47,15 +47,18 @@ LINK_REGEX = r"(https?://\S+|t\.me/\S+)"
 @userbot.on_message(filters.chat(A_CHAT))
 async def detect_links(client, message: Message):
     try:
-        logger.info(f"msg recived from in A CHAT{A_CHAT}")
-        if message.caption:
-            links = re.findall(LINK_REGEX, message.text)
+        logger.info(f"Message received in A_CHAT: {A_CHAT}")
+
+        text = message.text or message.caption
+
+        if text:
+            links = re.findall(LINK_REGEX, text)
 
             if links:
-                logger.info(f"Links detected in {A_CHAT}: {links}")
+                logger.info(f"Links detected: {links}")
+
     except Exception as e:
         logger.error(f"Link detection error: {e}")
-
 # ================= BOT =================
 
 @bot.on_message(filters.command("start"))
