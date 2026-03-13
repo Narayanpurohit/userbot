@@ -48,7 +48,7 @@ LINK_REGEX = r"(https?://\S+|t\.me/\S+)"
 async def detect_links(client, message: Message):
     try:
         logger.info(f"msg recived from in A CHAT{A_CHAT}")
-        if message.text:
+        if message.caption:
             links = re.findall(LINK_REGEX, message.text)
 
             if links:
