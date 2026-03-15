@@ -27,7 +27,7 @@ CURRENT_LINK = None
 
 DATA_FILE = "data.json"
 PENDING_FILE = "pending_A.json"
-PENDING_C_FILE = "pending_C.json"
+# PENDING_C_FILE = "pending_C.json"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -217,7 +217,7 @@ def update_data_json(a_link, c_msg_id):
             data[key]["C_MSG_ID"] = c_msg_id
 
     save_json(DATA_FILE, data)
-    save_json(PENDING_FILE, pending)
+   # save_json(PENDING_FILE, pending)
 
 
 # ================= BOT =================
