@@ -5,6 +5,7 @@ from pyrogram import Client, filters
 from pyrogram.types import Message
 import json
 import aiohttp
+import asyncio
 # ================= CONFIG =================
 
 API_ID = 15191874
