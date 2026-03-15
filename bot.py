@@ -136,7 +136,7 @@ async def queue_worker():
 
     while True:
 
-        pending = load_json(PENDING_FILE, [])
+        pending = load_json(PENDING_FILE)
 
         if not pending:
             logger.info("Queue finished")
