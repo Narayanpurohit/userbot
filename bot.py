@@ -247,6 +247,39 @@ async def get_file(client, message: Message):
     except Exception as e:
         logger.error(e)
 
+@bot.on_message(filters.command("reset"))
+async def reset_file(client, message: Message):
+    try:
+
+        if len(message.command) < 2:
+            await message.reply_text("Usage:\n/reset filename")
+            return
+
+        filename = message.command[1]
+
+        if not os.path.exists(filename):
+            await message.reply_text("File not found.")
+            return
+
+        # decide empty structure
+        if filename == DATA_FILE:
+            empty_data = {}
+        else:
+            empty_data = []
+
+        with open(filename, "w") as f:
+            json.dump(empty_data, f, indent=4)
+
+        logger.info(f"{filename} reset by {message.from_user.id}")
+
+        await message.reply_text(f"{filename} has been reset successfully.")
+
+    except Exception as e:
+        logger.error(f"Reset error: {e}")
+        await message.reply_text("Error resetting file.")
+
+
+
 # ================= RUN =================
 
 async def main():
