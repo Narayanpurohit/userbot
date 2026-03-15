@@ -165,7 +165,7 @@ async def handle_b_chat(client, message: Message):
 
         file_path = await download_file(download_link)
 
-        c_msg = await bot.send_document(C_CHAT, file_path)
+        c_msg = await bot.send_video(C_CHAT,file_path,caption="Uploaded by Automation Bot")
 
         update_data_json(CURRENT_LINK, c_msg.id)
 
@@ -192,7 +192,7 @@ async def handle_b_chat(client, message: Message):
 
 async def download_file(url):
 
-    file_path = "downloaded_file.mp4"
+    file_path = "downloaded_video.mp4"
 
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as resp:
