@@ -3,7 +3,8 @@ import re
 import logging
 from pyrogram import Client, filters
 from pyrogram.types import Message
-
+import json
+import aiohttp
 # ================= CONFIG =================
 
 API_ID = 15191874
@@ -14,6 +15,12 @@ SESSION_STRING = "BQDnz0IAJzOoxRzgimGKUJn10SeMh23vIVn7VzZRkHqfHvzdAs7Tc2vKY_li_d
 
 A_CHAT = -1002513087490   # Chat ID jaha links detect karne hain
 FILES_DIR = "."     # Directory jaha files stored hain
+QUEUE_RUNNING = False
+
+DATA_FILE = "data.json"
+PENDING_FILE = "pending_A.json"
+
+
 
 # ==========================================
 
@@ -43,10 +50,8 @@ userbot = Client(
 LINK_REGEX = r"(https?://\S+|t\.me/\S+)"
 
 # ================= USERBOT =================
-import json
 
-DATA_FILE = "data.json"
-PENDING_FILE = "pending_A.json"
+
 
 
 def load_json(file):
@@ -100,11 +105,134 @@ async def detect_links(client, message: Message):
 
         save_json(DATA_FILE, data)
         save_json(PENDING_FILE, pending)
+        
+        global QUEUE_RUNNING
+
+        if not QUEUE_RUNNING:
+            logger.info("Queue starting...")
+            asyncio.create_task(queue_worker())
+        
+        
+        
 
         logger.info("Data saved to JSON files")
 
     except Exception as e:
         logger.error(f"Link detection error: {e}")
+
+
+
+
+
+async def queue_worker():
+
+    global QUEUE_RUNNING
+    QUEUE_RUNNING = True
+
+    logger.info("Queue worker started")
+
+    while True:
+
+        pending = load_json(PENDING_FILE, [])
+
+        if not pending:
+            logger.info("Queue finished")
+            QUEUE_RUNNING = False
+            return
+
+        link = pending[0]
+
+        logger.info(f"Processing: {link}")
+
+        try:
+
+            # send to B chat
+            sent_msg = await userbot.send_message(B_CHAT, link)
+
+            # wait for response
+            response = await wait_for_b_response()
+
+            download_link = extract_button_link(response)
+
+            file_path = await download_file(download_link)
+
+            c_msg = await bot.send_document(C_CHAT, file_path)
+
+            update_data_json(link, c_msg.id)
+            try:
+                os.remove(file_path)
+                logger.info(f"File deleted: {file_path}")
+            except Exception as e:
+                logger.error(f"File delete failed: {e}")
+            pending.pop(0)
+            save_json(PENDING_FILE, pending)
+
+            logger.info("Link processed successfully")
+
+        except Exception as e:
+            logger.error(f"Processing error: {e}")
+
+            await asyncio.sleep(5)
+
+async def wait_for_b_response():
+
+    while True:
+
+        msg = await userbot.listen(B_CHAT)
+
+        if msg.reply_markup:
+            return msg
+
+def extract_button_link(message):
+
+    try:
+        button = message.reply_markup.inline_keyboard[1][0]
+
+        return button.url
+    except:
+        return None
+
+
+
+async def download_file(url):
+
+    file_path = "files/downloaded_file"
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+
+            with open(file_path, "wb") as f:
+                while True:
+                    chunk = await resp.content.read(1024)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+
+    return file_path
+
+def update_data_json(a_link, c_msg_id):
+
+    data = load_json(DATA_FILE, {})
+
+    for key in data:
+
+        if data[key]["A_MSG_LINK"] == a_link:
+
+            data[key]["C_MSG_ID"] = c_msg_id
+
+    save_json(DATA_FILE, data)
+
+def update_data_json(a_link, c_msg_id):
+
+    data = load_json(DATA_FILE, {})
+
+    for key in data:
+
+        if data[key]["A_MSG_LINK"] == a_link:
+
+            data[key]["C_MSG_ID"] = c_msg_id
+
+    save_json(DATA_FILE, data)
 
 
 
