@@ -1,12 +1,12 @@
+
 import os
 import re
-import logging
-from pyrogram import Client, filters
-from pyrogram.types import Message
 import json
-import aiohttp
+import logging
 import asyncio
-# ================= CONFIG =================
+import aiohttp
+from pyrogram import Client, filters, idle
+from pyrogram.types import Message
 
 API_ID = 15191874
 API_HASH = "3037d39233c6fad9b80d83bb8a339a07"
@@ -14,18 +14,19 @@ API_HASH = "3037d39233c6fad9b80d83bb8a339a07"
 BOT_TOKEN = "7350676839:AAGlgApZke3RNYzS2ggLBdJjOiBmOq7Tq_U"
 SESSION_STRING = "BQDnz0IAJzOoxRzgimGKUJn10SeMh23vIVn7VzZRkHqfHvzdAs7Tc2vKY_li_dv6oD5207CYf3SpXmmkKRjbM5LFYCxLs8KtHcMZ4dx99Lkw7SMZOprSGHh_-ZQ8P4Lrur7a0ro5JqMi3OD7K3o_JOuHJuUZ4_sZU2oPmOR2UA-U0ClMKeUbGsVF6xWZpAE0Q2u64nsq3u52yS2mKg761udlELDNKk-S_gdIvfP_vAu9SW0zoIpYxhuhxXjxh3TmzNYacwotTVfUT3gtuWiR-JareKyPXaW80d2c9U-74u3LrrcVaYnO2WJG1pUUDNsmkH14KybnXE0Jn0RjnvruAbsnQPCtZQAAAAGQaum1AA"
 
-A_CHAT = -1002513087490   # Chat ID jaha links detect karne hain
-B_CHAT=7827774101
-C_CHAT= -1002687789677
-FILES_DIR = "."     # Directory jaha files stored hain
+
+
+
+A_CHAT = -1002513087490
+B_CHAT = 7827774101
+C_CHAT = -1002687789677
+
+FILES_DIR = "."
 QUEUE_RUNNING = False
+CURRENT_LINK = None
 
 DATA_FILE = "data.json"
 PENDING_FILE = "pending_A.json"
-
-
-
-# ==========================================
 
 logging.basicConfig(
     level=logging.INFO,
@@ -34,7 +35,6 @@ logging.basicConfig(
 
 logger = logging.getLogger("CombinedBot")
 
-# Clients
 bot = Client(
     "bot",
     api_id=API_ID,
@@ -49,13 +49,9 @@ userbot = Client(
     session_string=SESSION_STRING
 )
 
-# Regex for links
 LINK_REGEX = r"(https?://\S+|t\.me/\S+)"
 
-# ================= USERBOT =================
-
-
-
+# ================= JSON HELPERS =================
 
 def load_json(file):
     if not os.path.exists(file):
@@ -63,31 +59,50 @@ def load_json(file):
     with open(file, "r") as f:
         return json.load(f)
 
-
 def save_json(file, data):
     with open(file, "w") as f:
         json.dump(data, f, indent=4)
 
+# ================= QUEUE STARTER =================
+
+async def process_pending_link():
+
+    global QUEUE_RUNNING, CURRENT_LINK
+
+    pending = load_json(PENDING_FILE)
+
+    if not pending:
+        logger.info("No pending links. Queue OFF")
+        QUEUE_RUNNING = False
+        CURRENT_LINK = None
+        return
+
+    QUEUE_RUNNING = True
+
+    link = pending[0]
+    CURRENT_LINK = link
+
+    logger.info(f"Processing link: {link}")
+
+    await userbot.send_message(B_CHAT, link)
+
+    logger.info("Link sent to B_CHAT, waiting response")
+
+# ================= LINK DETECTOR =================
 
 @userbot.on_message(filters.chat(A_CHAT))
 async def detect_links(client, message: Message):
+
     try:
 
-        logger.info(f"Message received in A_CHAT: {A_CHAT}")
-
         text = message.text or message.caption
-
         if not text:
             return
 
         links = re.findall(LINK_REGEX, text)
-
         if not links:
             return
 
-        logger.info(f"Links detected: {links}")
-
-        # load files
         data = load_json(DATA_FILE)
         pending = load_json(PENDING_FILE)
 
@@ -95,7 +110,6 @@ async def detect_links(client, message: Message):
 
         for link in links:
 
-            # save in data.json
             data[str(msg_id)] = {
                 "A_MSG_ID": msg_id,
                 "A_MSG_LINK": link,
@@ -103,103 +117,81 @@ async def detect_links(client, message: Message):
                 "D_CHAT_LINK": ""
             }
 
-            # add to pending list
-            pending.append(link)
+            if link not in pending:
+                pending.append(link)
 
         save_json(DATA_FILE, data)
         save_json(PENDING_FILE, pending)
-        
+
+        logger.info(f"Links added to queue: {links}")
+
         global QUEUE_RUNNING
 
         if not QUEUE_RUNNING:
-            logger.info("Queue starting...")
-            asyncio.create_task(queue_worker())
-        
-        
-        
-
-        logger.info("Data saved to JSON files")
+            await process_pending_link()
 
     except Exception as e:
-        logger.error(f"Link detection error: {e}")
+        logger.error(f"A_CHAT error: {e}")
 
+# ================= B_CHAT RESPONSE =================
 
+@userbot.on_message(filters.chat(B_CHAT))
+async def handle_b_chat(client, message: Message):
 
+    global CURRENT_LINK
 
+    if CURRENT_LINK is None:
+        return
 
-async def queue_worker():
+    if not message.reply_markup:
+        return
 
-    global QUEUE_RUNNING
-    QUEUE_RUNNING = True
+    try:
 
-    logger.info("Queue worker started")
+        # extract button url
+        download_link = None
 
-    while True:
+        for row in message.reply_markup.inline_keyboard:
+            for btn in row:
+                if btn.url:
+                    download_link = btn.url
+                    break
+
+        if not download_link:
+            return
+
+        logger.info(f"Download link found: {download_link}")
+
+        file_path = await download_file(download_link)
+
+        c_msg = await bot.send_document(C_CHAT, file_path)
+
+        update_data_json(CURRENT_LINK, c_msg.id)
+
+        if os.path.exists(file_path):
+            os.remove(file_path)
 
         pending = load_json(PENDING_FILE)
 
-        if not pending:
-            logger.info("Queue finished")
-            QUEUE_RUNNING = False
-            return
+        if CURRENT_LINK in pending:
+            pending.remove(CURRENT_LINK)
 
-        link = pending[0]
+        save_json(PENDING_FILE, pending)
 
-        logger.info(f"Processing: {link}")
+        logger.info("Link processed successfully")
 
-        try:
+        CURRENT_LINK = None
 
-            # send to B chat
-            sent_msg = await userbot.send_message(B_CHAT, link)
+        await process_pending_link()
 
-            # wait for response
-            response = await wait_for_b_response()
+    except Exception as e:
+        logger.error(f"B_CHAT processing error: {e}")
 
-            download_link = extract_button_link(response)
-
-            file_path = await download_file(download_link)
-
-            c_msg = await bot.send_document(C_CHAT, file_path)
-
-            update_data_json(link, c_msg.id)
-            try:
-                os.remove(file_path)
-                logger.info(f"File deleted: {file_path}")
-            except Exception as e:
-                logger.error(f"File delete failed: {e}")
-            pending.pop(0)
-            save_json(PENDING_FILE, pending)
-
-            logger.info("Link processed successfully")
-
-        except Exception as e:
-            logger.error(f"Processing error: {e}")
-
-            await asyncio.sleep(5)
-
-async def wait_for_b_response():
-
-    while True:
-
-        msg = await userbot.listen(B_CHAT)
-
-        if msg.reply_markup:
-            return msg
-
-def extract_button_link(message):
-
-    try:
-        button = message.reply_markup.inline_keyboard[1][0]
-
-        return button.url
-    except:
-        return None
-
-
+# ================= DOWNLOAD =================
 
 async def download_file(url):
 
-    file_path = "files/downloaded_file"
+    file_path = "downloaded_file"
 
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as resp:
@@ -213,49 +205,31 @@ async def download_file(url):
 
     return file_path
 
-def update_data_json(a_link, c_msg_id):
-
-    data = load_json(DATA_FILE, {})
-
-    for key in data:
-
-        if data[key]["A_MSG_LINK"] == a_link:
-
-            data[key]["C_MSG_ID"] = c_msg_id
-
-    save_json(DATA_FILE, data)
+# ================= DATA UPDATE =================
 
 def update_data_json(a_link, c_msg_id):
 
-    data = load_json(DATA_FILE, {})
+    data = load_json(DATA_FILE)
 
     for key in data:
-
         if data[key]["A_MSG_LINK"] == a_link:
-
             data[key]["C_MSG_ID"] = c_msg_id
 
     save_json(DATA_FILE, data)
-
-
 
 # ================= BOT =================
 
 @bot.on_message(filters.command("start"))
 async def start_command(client, message: Message):
-    logger.info(f"/start used by {message.from_user.id}")
 
     await message.reply_text(
-        "Hello 👋\n\n"
-        "Available Commands:\n"
-        "/get filename"
+        "Hello 👋\n\nCommands:\n/get filename"
     )
-
 
 @bot.on_message(filters.command("get"))
 async def get_file(client, message: Message):
+
     try:
-        logger.info(f"/get command from {message.from_user.id}")
 
         if len(message.command) < 2:
             await message.reply_text("Usage:\n/get filename")
@@ -266,30 +240,23 @@ async def get_file(client, message: Message):
         file_path = os.path.join(FILES_DIR, file_name)
 
         if os.path.exists(file_path):
-            logger.info(f"Sending file: {file_name}")
-
             await message.reply_document(file_path)
-
         else:
-            logger.warning(f"File not found: {file_name}")
-
             await message.reply_text("File not found.")
 
     except Exception as e:
-        logger.error(f"File sending error: {e}")
-        await message.reply_text("Error while sending file.")
+        logger.error(e)
 
 # ================= RUN =================
 
 async def main():
+
     await bot.start()
     await userbot.start()
 
-    logger.info("Bot + Userbot Started Successfully")
+    logger.info("Bot + Userbot Started")
 
     await idle()
-
-from pyrogram import idle
 
 if __name__ == "__main__":
     bot.run(main())
