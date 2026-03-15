@@ -165,7 +165,7 @@ async def handle_b_chat(client, message: Message):
 
         file_path = await download_file(download_link)
 
-        c_msg = await bot.send_video(C_CHAT,file_path,caption="Uploaded by Automation Bot")
+        c_msg = await userbot.send_video(C_CHAT,file_path,caption="Uploaded by Automation Bot")
 
         update_data_json(CURRENT_LINK, c_msg.id)
 
