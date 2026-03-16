@@ -1,10 +1,12 @@
-
-
 import os
 import re
 import json
 import logging
 import aiohttp
+import asyncio
+import subprocess
+import random
+
 from pyrogram import Client, filters, idle
 from pyrogram.types import Message
 
@@ -21,14 +23,11 @@ SESSION_STRING = "BQDnz0IAJzOoxRzgimGKUJn10SeMh23vIVn7VzZRkHqfHvzdAs7Tc2vKY_li_d
 A_CHAT = -1002513087490
 C_CHAT = -1002687789677
 
-FILES_DIR = "."
-QUEUE_RUNNING = False
-CURRENT_LINK = None
-
 DATA_FILE = "data.json"
-PENDING_FILE = "pending_A.json"
 
 API_URL = "https://api.teamdev.sbs/v2/download?url={}&api=teamdev_qjic7fb1jz"
+
+LINK_REGEX = r"(https?://\S+|t\.me/\S+)"
 
 # ==========================================
 
@@ -53,37 +52,35 @@ userbot = Client(
     session_string=SESSION_STRING
 )
 
-LINK_REGEX = r"(https?://\S+|t\.me/\S+)"
+# ================= JSON =================
 
-# ================= JSON HELPERS =================
+def load_json():
 
-def load_json(file):
+    if not os.path.exists(DATA_FILE):
+        return {}
 
-    if not os.path.exists(file):
-        return {} if file == DATA_FILE else []
-
-    with open(file, "r") as f:
+    with open(DATA_FILE, "r") as f:
         return json.load(f)
 
 
-def save_json(file, data):
+def save_json(data):
 
-    with open(file, "w") as f:
+    with open(DATA_FILE, "w") as f:
         json.dump(data, f, indent=4)
 
 # ================= DOWNLOAD =================
 
-async def download_file(a_link):
+async def download_video(a_link):
 
     url = API_URL.format(a_link)
 
-    file_path = "video.mp4"
+    file_name = f"video_{random.randint(1000,9999)}.mp4"
 
     async with aiohttp.ClientSession() as session:
 
         async with session.get(url, allow_redirects=True) as resp:
 
-            with open(file_path, "wb") as f:
+            with open(file_name, "wb") as f:
 
                 while True:
 
@@ -94,82 +91,53 @@ async def download_file(a_link):
 
                     f.write(chunk)
 
-    return file_path
+    return file_name
+
+# ================= VIDEO INFO =================
+
+def get_video_metadata(video_path):
+
+    import cv2
+
+    cap = cv2.VideoCapture(video_path)
+
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+
+    duration = int(frame_count / fps) if fps else 0
+
+    # random frame thumbnail
+    random_frame = random.randint(1, int(frame_count))
+
+    cap.set(cv2.CAP_PROP_POS_FRAMES, random_frame)
+
+    success, frame = cap.read()
+
+    thumb = "thumb.jpg"
+
+    if success:
+        cv2.imwrite(thumb, frame)
+
+    cap.release()
+
+    return duration, width, height, thumb
 
 # ================= DATA UPDATE =================
 
 def update_data_json(a_link, c_msg_id):
 
-    data = load_json(DATA_FILE)
+    data = load_json()
 
     for key in data:
 
         if data[key]["A_MSG_LINK"] == a_link:
-
             data[key]["C_MSG_ID"] = c_msg_id
 
-    save_json(DATA_FILE, data)
+    save_json(data)
 
-# ================= QUEUE PROCESS =================
-
-async def process_pending_link():
-
-    global QUEUE_RUNNING, CURRENT_LINK
-
-    pending = load_json(PENDING_FILE)
-
-    if not pending:
-
-        logger.info("No pending links. Queue OFF")
-
-        QUEUE_RUNNING = False
-        CURRENT_LINK = None
-
-        return
-
-    QUEUE_RUNNING = True
-
-    link = pending[0]
-
-    CURRENT_LINK = link
-
-    logger.info(f"Processing link: {link}")
-
-    try:
-
-        file_path = await download_file(link)
-
-        logger.info("Download completed")
-
-        c_msg = await userbot.send_video(
-            C_CHAT,
-            file_path,
-            supports_streaming=True
-        )
-
-        logger.info("Uploaded to C_CHAT")
-
-        update_data_json(link, c_msg.id)
-
-        if os.path.exists(file_path):
-
-            os.remove(file_path)
-
-            logger.info("Local file deleted")
-
-        pending.remove(link)
-
-        save_json(PENDING_FILE, pending)
-
-        CURRENT_LINK = None
-
-        await process_pending_link()
-
-    except Exception as e:
-
-        logger.error(f"Processing error: {e}")
-
-# ================= LINK DETECTOR =================
+# ================= LINK DETECT =================
 
 @userbot.on_message(filters.chat(A_CHAT))
 async def detect_links(client, message: Message):
@@ -186,12 +154,13 @@ async def detect_links(client, message: Message):
         if not links:
             return
 
-        data = load_json(DATA_FILE)
-        pending = load_json(PENDING_FILE)
+        data = load_json()
 
         msg_id = message.id
 
         for link in links:
+
+            logger.info(f"Processing {link}")
 
             data[str(msg_id)] = {
                 "A_MSG_ID": msg_id,
@@ -200,18 +169,38 @@ async def detect_links(client, message: Message):
                 "D_CHAT_LINK": ""
             }
 
-            if link not in pending:
-                pending.append(link)
+            save_json(data)
 
-        save_json(DATA_FILE, data)
-        save_json(PENDING_FILE, pending)
+            # download video
+            video_path = await download_video(link)
 
-        logger.info(f"Links added to queue: {links}")
+            # get metadata
+            duration, width, height, thumb = get_video_metadata(video_path)
 
-        global QUEUE_RUNNING
+            caption = os.path.basename(video_path)
 
-        if not QUEUE_RUNNING:
-            await process_pending_link()
+            # upload to telegram
+            sent = await bot.send_video(
+                C_CHAT,
+                video_path,
+                caption=caption,
+                duration=duration,
+                width=width,
+                height=height,
+                supports_streaming=True,
+                thumb=thumb
+            )
+
+            update_data_json(link, sent.id)
+
+            # cleanup
+            if os.path.exists(video_path):
+                os.remove(video_path)
+
+            if os.path.exists(thumb):
+                os.remove(thumb)
+
+            logger.info("Upload complete")
 
     except Exception as e:
 
@@ -227,61 +216,25 @@ async def start_command(client, message: Message):
     )
 
 
-@bot.on_message(filters.command("get"))
-async def get_file(client, message: Message):
-
-    try:
-
-        if len(message.command) < 2:
-
-            await message.reply_text("Usage:\n/get filename")
-            return
-
-        file_name = message.command[1]
-
-        file_path = os.path.join(FILES_DIR, file_name)
-
-        if os.path.exists(file_path):
-
-            await message.reply_document(file_path)
-
-        else:
-
-            await message.reply_text("File not found.")
-
-    except Exception as e:
-
-        logger.error(e)
-
-
 @bot.on_message(filters.command("reset"))
 async def reset_file(client, message: Message):
 
     try:
 
-        if len(message.command) < 2:
+        if not os.path.exists(DATA_FILE):
 
-            await message.reply_text("Usage:\n/reset filename")
+            await message.reply_text("data.json not found")
             return
 
-        filename = message.command[1]
+        with open(DATA_FILE, "w") as f:
 
-        if not os.path.exists(filename):
+            json.dump({}, f, indent=4)
 
-            await message.reply_text("File not found.")
-            return
-
-        empty_data = {} if filename == DATA_FILE else []
-
-        with open(filename, "w") as f:
-
-            json.dump(empty_data, f, indent=4)
-
-        await message.reply_text(f"{filename} reset successfully")
+        await message.reply_text("data.json reset")
 
     except Exception as e:
 
-        logger.error(f"Reset error: {e}")
+        logger.error(e)
 
 # ================= RUN =================
 
@@ -290,12 +243,10 @@ async def main():
     await bot.start()
     await userbot.start()
 
-    logger.info("Bot + Userbot Started Successfully")
+    logger.info("Bot Started Successfully")
 
     await idle()
-
 
 if __name__ == "__main__":
 
     bot.run(main())
-
