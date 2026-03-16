@@ -98,32 +98,41 @@ async def download_video(a_link):
 def get_video_metadata(video_path):
 
     import cv2
+    import random
 
     cap = cv2.VideoCapture(video_path)
 
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+    if not cap.isOpened():
+        raise Exception("Video file corrupted or incomplete")
 
-    duration = int(frame_count / fps) if fps else 0
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
 
-    # random frame thumbnail
-    random_frame = random.randint(1, int(frame_count))
+    fps = cap.get(cv2.CAP_PROP_FPS) or 1
+    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
 
-    cap.set(cv2.CAP_PROP_POS_FRAMES, random_frame)
-
-    success, frame = cap.read()
+    duration = int(frame_count / fps) if frame_count > 0 else 0
 
     thumb = "thumb.jpg"
 
-    if success:
-        cv2.imwrite(thumb, frame)
+    if frame_count > 10:
+
+        random_frame = random.randint(1, frame_count - 1)
+
+        cap.set(cv2.CAP_PROP_POS_FRAMES, random_frame)
+
+        success, frame = cap.read()
+
+        if success:
+            cv2.imwrite(thumb, frame)
+        else:
+            thumb = None
+    else:
+        thumb = None
 
     cap.release()
 
     return duration, width, height, thumb
-
 # ================= DATA UPDATE =================
 
 def update_data_json(a_link, c_msg_id):
@@ -180,16 +189,16 @@ async def detect_links(client, message: Message):
             caption = os.path.basename(video_path)
 
             # upload to telegram
-            sent = await bot.send_video(
-                C_CHAT,
-                video_path,
-                caption=caption,
-                duration=duration,
-                width=width,
-                height=height,
-                supports_streaming=True,
-                thumb=thumb
-            )
+            sent = await userbot.send_video(
+    C_CHAT,
+    video_path,
+    caption=caption,
+    duration=duration,
+    width=width,
+    height=height,
+    supports_streaming=True,
+    thumb=thumb if thumb else None
+)
 
             update_data_json(link, sent.id)
 
