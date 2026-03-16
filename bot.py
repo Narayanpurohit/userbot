@@ -6,10 +6,11 @@ import re
 import json
 import logging
 import aiohttp
+import subprocess
+import random
+
 from pyrogram import Client, filters, idle
 from pyrogram.types import Message
-
-# ================= CONFIG =================
 
 API_ID = 15191874
 API_HASH = "3037d39233c6fad9b80d83bb8a339a07"
@@ -21,20 +22,18 @@ SESSION_STRING = "BQDnz0IAJzOoxRzgimGKUJn10SeMh23vIVn7VzZRkHqfHvzdAs7Tc2vKY_li_d
 A_CHAT = -1002513087490
 C_CHAT = -1002687789677
 
+API_URL = "https://api.teamdev.sbs/v2/download?url={}&api=teamdev_qjic7fb1jz&json=1"
+
 DATA_FILE = "data.json"
 
-API_URL = "https://api.teamdev.sbs/v2/download?url={}&api=teamdev_sgovr3nf4x&json=1"
-
 LINK_REGEX = r"(https?://\S+|t\.me/\S+)"
-
-# ==========================================
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
-logger = logging.getLogger("CombinedBot")
+logger = logging.getLogger("TeraBoxBot")
 
 bot = Client(
     "bot",
@@ -57,7 +56,7 @@ def load_json():
     if not os.path.exists(DATA_FILE):
         return {}
 
-    with open(DATA_FILE, "r") as f:
+    with open(DATA_FILE) as f:
         return json.load(f)
 
 
@@ -66,29 +65,28 @@ def save_json(data):
     with open(DATA_FILE, "w") as f:
         json.dump(data, f, indent=4)
 
-# ================= API CALL =================
 
-async def get_file_info(a_link):
+# ================= API =================
 
-    url = API_URL.format(a_link)
+async def get_file_info(link):
+
+    url = API_URL.format(link)
 
     async with aiohttp.ClientSession() as session:
+
         async with session.get(url) as resp:
 
             data = await resp.json()
 
             if not data.get("success"):
-                raise Exception("API request failed")
+                raise Exception("API failed")
 
-            file_data = data["file"]
+            file = data["file"]
 
-            return {
-                "name": file_data["name"],
-                "download_link": file_data["link"],
-                "thumb": file_data["thumbnails"]["360x270"]
-            }
+            return file["name"], file["link"]
 
-# ================= DOWNLOAD VIDEO =================
+
+# ================= DOWNLOAD =================
 
 async def download_video(url, filename):
 
@@ -105,36 +103,107 @@ async def download_video(url, filename):
 
     return filename
 
-# ================= DOWNLOAD THUMB =================
 
-async def download_thumb(url):
+# ================= VIDEO INFO =================
 
-    thumb_path = "thumb.jpg"
+def get_video_info(video):
 
-    async with aiohttp.ClientSession() as session:
+    cmd = [
+        "ffprobe",
+        "-v", "quiet",
+        "-print_format", "json",
+        "-show_streams",
+        video
+    ]
 
-        async with session.get(url) as resp:
+    result = subprocess.run(cmd, capture_output=True, text=True)
 
-            with open(thumb_path, "wb") as f:
+    data = json.loads(result.stdout)
 
-                f.write(await resp.read())
+    video_stream = None
 
-    return thumb_path
+    for stream in data["streams"]:
+        if stream["codec_type"] == "video":
+            video_stream = stream
+            break
 
-# ================= DATA UPDATE =================
+    width = video_stream.get("width", 0)
+    height = video_stream.get("height", 0)
 
-def update_data_json(a_link, c_msg_id):
+    duration = int(float(video_stream.get("duration", 0)))
 
-    data = load_json()
+    return duration, width, height
 
-    for key in data:
 
-        if data[key]["A_MSG_LINK"] == a_link:
-            data[key]["C_MSG_ID"] = c_msg_id
+# ================= THUMBNAIL =================
 
-    save_json(data)
+def generate_thumbnail(video):
 
-# ================= LINK DETECT =================
+    thumb = "thumb.jpg"
+
+    time = random.randint(1, 10)
+
+    cmd = [
+        "ffmpeg",
+        "-ss", str(time),
+        "-i", video,
+        "-frames:v", "1",
+        "-q:v", "2",
+        thumb,
+        "-y"
+    ]
+
+    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    return thumb
+
+
+# ================= MAIN PROCESS =================
+
+async def process_link(link, msg_id):
+
+    try:
+
+        logger.info(f"Processing {link}")
+
+        filename, download_link = await get_file_info(link)
+
+        video_path = await download_video(download_link, filename)
+
+        duration, width, height = get_video_info(video_path)
+
+        thumb = generate_thumbnail(video_path)
+
+        sent = await userbot.send_video(
+            C_CHAT,
+            video_path,
+            caption=filename,
+            duration=duration,
+            width=width,
+            height=height,
+            supports_streaming=True,
+            thumb=thumb
+        )
+
+        data = load_json()
+
+        data[str(msg_id)]["C_MSG_ID"] = sent.id
+
+        save_json(data)
+
+        os.remove(video_path)
+
+        if os.path.exists(thumb):
+            os.remove(thumb)
+
+        logger.info("Upload complete")
+
+    except Exception as e:
+
+        logger.error(f"Processing error: {e}")
+
+
+# ================= LINK DETECTOR =================
 
 @userbot.on_message(filters.chat(A_CHAT))
 async def detect_links(client, message: Message):
@@ -153,78 +222,30 @@ async def detect_links(client, message: Message):
 
         data = load_json()
 
-        msg_id = message.id
-
         for link in links:
 
-            logger.info(f"Processing {link}")
-
-            data[str(msg_id)] = {
-                "A_MSG_ID": msg_id,
+            data[str(message.id)] = {
+                "A_MSG_ID": message.id,
                 "A_MSG_LINK": link,
-                "C_MSG_ID": "",
-                "D_CHAT_LINK": ""
+                "C_MSG_ID": ""
             }
 
             save_json(data)
 
-            # ===== API CALL =====
-            info = await get_file_info(link)
-
-            filename = info["name"]
-            download_link = info["download_link"]
-            thumb_url = info["thumb"]
-
-            # ===== DOWNLOAD VIDEO =====
-            video_path = await download_video(download_link, filename)
-
-            # ===== DOWNLOAD THUMB =====
-            thumb_path = await download_thumb(thumb_url)
-
-            # ===== TELEGRAM UPLOAD =====
-            sent = await bot.send_video(
-                C_CHAT,
-                video_path,
-                caption=filename,
-                supports_streaming=True,
-                thumb=thumb_path
-            )
-
-            update_data_json(link, sent.id)
-
-            # ===== CLEANUP =====
-            if os.path.exists(video_path):
-                os.remove(video_path)
-
-            if os.path.exists(thumb_path):
-                os.remove(thumb_path)
-
-            logger.info("Upload complete")
+            await process_link(link, message.id)
 
     except Exception as e:
 
         logger.error(f"A_CHAT error: {e}")
 
+
 # ================= BOT COMMANDS =================
 
 @bot.on_message(filters.command("start"))
-async def start_command(client, message: Message):
+async def start(client, message):
 
-    await message.reply_text("Bot running ✅")
+    await message.reply_text("Bot Running ✅")
 
-
-@bot.on_message(filters.command("reset"))
-async def reset_file(client, message: Message):
-
-    if not os.path.exists(DATA_FILE):
-
-        await message.reply_text("data.json not found")
-        return
-
-    with open(DATA_FILE, "w") as f:
-        json.dump({}, f, indent=4)
-
-    await message.reply_text("data.json reset complete")
 
 # ================= RUN =================
 
@@ -237,6 +258,6 @@ async def main():
 
     await idle()
 
-if __name__ == "__main__":
 
+if __name__ == "__main__":
     bot.run(main())
