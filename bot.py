@@ -1,12 +1,11 @@
+
+
+
 import os
 import re
 import json
 import logging
 import aiohttp
-import asyncio
-import subprocess
-import random
-
 from pyrogram import Client, filters, idle
 from pyrogram.types import Message
 
@@ -19,13 +18,12 @@ BOT_TOKEN = "7350676839:AAGlgApZke3RNYzS2ggLBdJjOiBmOq7Tq_U"
 SESSION_STRING = "BQDnz0IAJzOoxRzgimGKUJn10SeMh23vIVn7VzZRkHqfHvzdAs7Tc2vKY_li_dv6oD5207CYf3SpXmmkKRjbM5LFYCxLs8KtHcMZ4dx99Lkw7SMZOprSGHh_-ZQ8P4Lrur7a0ro5JqMi3OD7K3o_JOuHJuUZ4_sZU2oPmOR2UA-U0ClMKeUbGsVF6xWZpAE0Q2u64nsq3u52yS2mKg761udlELDNKk-S_gdIvfP_vAu9SW0zoIpYxhuhxXjxh3TmzNYacwotTVfUT3gtuWiR-JareKyPXaW80d2c9U-74u3LrrcVaYnO2WJG1pUUDNsmkH14KybnXE0Jn0RjnvruAbsnQPCtZQAAAAGQaum1AA"
 
 
-
 A_CHAT = -1002513087490
 C_CHAT = -1002687789677
 
 DATA_FILE = "data.json"
 
-API_URL = "https://api.teamdev.sbs/v2/download?url={}&api=teamdev_qjic7fb1jz"
+API_URL = "https://api.teamdev.sbs/v2/download?url={}&api=teamdev_sgovr3nf4x&json=1"
 
 LINK_REGEX = r"(https?://\S+|t\.me/\S+)"
 
@@ -68,71 +66,61 @@ def save_json(data):
     with open(DATA_FILE, "w") as f:
         json.dump(data, f, indent=4)
 
-# ================= DOWNLOAD =================
+# ================= API CALL =================
 
-async def download_video(a_link):
+async def get_file_info(a_link):
 
     url = API_URL.format(a_link)
 
-    file_name = f"video_{random.randint(1000,9999)}.mp4"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+
+            data = await resp.json()
+
+            if not data.get("success"):
+                raise Exception("API request failed")
+
+            file_data = data["file"]
+
+            return {
+                "name": file_data["name"],
+                "download_link": file_data["link"],
+                "thumb": file_data["thumbnails"]["360x270"]
+            }
+
+# ================= DOWNLOAD VIDEO =================
+
+async def download_video(url, filename):
 
     async with aiohttp.ClientSession() as session:
 
-        async with session.get(url, allow_redirects=True) as resp:
+        async with session.get(url) as resp:
 
-            with open(file_name, "wb") as f:
+            with open(filename, "wb") as f:
 
-                while True:
+                async for chunk in resp.content.iter_chunked(1024 * 1024):
 
-                    chunk = await resp.content.read(1024 * 1024)
+                    if chunk:
+                        f.write(chunk)
 
-                    if not chunk:
-                        break
+    return filename
 
-                    f.write(chunk)
+# ================= DOWNLOAD THUMB =================
 
-    return file_name
+async def download_thumb(url):
 
-# ================= VIDEO INFO =================
+    thumb_path = "thumb.jpg"
 
-def get_video_metadata(video_path):
+    async with aiohttp.ClientSession() as session:
 
-    import cv2
-    import random
+        async with session.get(url) as resp:
 
-    cap = cv2.VideoCapture(video_path)
+            with open(thumb_path, "wb") as f:
 
-    if not cap.isOpened():
-        raise Exception("Video file corrupted or incomplete")
+                f.write(await resp.read())
 
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+    return thumb_path
 
-    fps = cap.get(cv2.CAP_PROP_FPS) or 1
-    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
-
-    duration = int(frame_count / fps) if frame_count > 0 else 0
-
-    thumb = "thumb.jpg"
-
-    if frame_count > 10:
-
-        random_frame = random.randint(1, frame_count - 1)
-
-        cap.set(cv2.CAP_PROP_POS_FRAMES, random_frame)
-
-        success, frame = cap.read()
-
-        if success:
-            cv2.imwrite(thumb, frame)
-        else:
-            thumb = None
-    else:
-        thumb = None
-
-    cap.release()
-
-    return duration, width, height, thumb
 # ================= DATA UPDATE =================
 
 def update_data_json(a_link, c_msg_id):
@@ -180,34 +168,36 @@ async def detect_links(client, message: Message):
 
             save_json(data)
 
-            # download video
-            video_path = await download_video(link)
+            # ===== API CALL =====
+            info = await get_file_info(link)
 
-            # get metadata
-            duration, width, height, thumb = get_video_metadata(video_path)
+            filename = info["name"]
+            download_link = info["download_link"]
+            thumb_url = info["thumb"]
 
-            caption = os.path.basename(video_path)
+            # ===== DOWNLOAD VIDEO =====
+            video_path = await download_video(download_link, filename)
 
-            # upload to telegram
-            sent = await userbot.send_video(
-    C_CHAT,
-    video_path,
-    caption=caption,
-    duration=duration,
-    width=width,
-    height=height,
-    supports_streaming=True,
-    thumb=thumb if thumb else None
-)
+            # ===== DOWNLOAD THUMB =====
+            thumb_path = await download_thumb(thumb_url)
+
+            # ===== TELEGRAM UPLOAD =====
+            sent = await bot.send_video(
+                C_CHAT,
+                video_path,
+                caption=filename,
+                supports_streaming=True,
+                thumb=thumb_path
+            )
 
             update_data_json(link, sent.id)
 
-            # cleanup
+            # ===== CLEANUP =====
             if os.path.exists(video_path):
                 os.remove(video_path)
 
-            if os.path.exists(thumb):
-                os.remove(thumb)
+            if os.path.exists(thumb_path):
+                os.remove(thumb_path)
 
             logger.info("Upload complete")
 
@@ -220,30 +210,21 @@ async def detect_links(client, message: Message):
 @bot.on_message(filters.command("start"))
 async def start_command(client, message: Message):
 
-    await message.reply_text(
-        "Hello 👋\n\nCommands:\n/get filename\n/reset filename"
-    )
+    await message.reply_text("Bot running ✅")
 
 
 @bot.on_message(filters.command("reset"))
 async def reset_file(client, message: Message):
 
-    try:
+    if not os.path.exists(DATA_FILE):
 
-        if not os.path.exists(DATA_FILE):
+        await message.reply_text("data.json not found")
+        return
 
-            await message.reply_text("data.json not found")
-            return
+    with open(DATA_FILE, "w") as f:
+        json.dump({}, f, indent=4)
 
-        with open(DATA_FILE, "w") as f:
-
-            json.dump({}, f, indent=4)
-
-        await message.reply_text("data.json reset")
-
-    except Exception as e:
-
-        logger.error(e)
+    await message.reply_text("data.json reset complete")
 
 # ================= RUN =================
 
