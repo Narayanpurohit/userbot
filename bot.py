@@ -141,7 +141,7 @@ async def process_pending_link():
 
         logger.info("Download completed")
 
-        c_msg = await bot.send_video(
+        c_msg = await userbot.send_video(
             C_CHAT,
             file_path,
             supports_streaming=True
