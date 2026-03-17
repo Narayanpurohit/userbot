@@ -6,6 +6,11 @@ import logging
 
 from pyrogram import Client, filters, idle
 from pyrogram.types import Message
+import aiohttp
+
+API_URL = "https://api.teamdev.sbs/v2/download?url={}&api=teamdev_sgovr3nf4x&json=1"
+
+
 
 API_ID = 15191874
 API_HASH = "3037d39233c6fad9b80d83bb8a339a07"
@@ -15,8 +20,10 @@ SESSION_STRING = "BQDnz0IAJzOoxRzgimGKUJn10SeMh23vIVn7VzZRkHqfHvzdAs7Tc2vKY_li_d
 
 A_CHAT = -1002513087490
 FILES_DIR = "."
+DOWNLOAD_DIR = "downloads"
 
 DATA_FILE = "data.json"
+
 
 LINK_REGEX = r"(https?://\S+|t\.me/\S+)"
 
@@ -58,6 +65,119 @@ def save_json(data):
         json.dump(data, f, indent=4)
 
 
+async def download_from_api(a_link):
+
+    # create folder if not exists
+    os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+
+    api_url = API_URL.format(a_link)
+
+    async with aiohttp.ClientSession() as session:
+
+        # ---------- API REQUEST ----------
+        async with session.get(api_url, timeout=60) as resp:
+
+            if resp.status != 200:
+                raise Exception(f"API HTTP Error: {resp.status}")
+
+            data = await resp.json(content_type=None)
+
+            if not data.get("success"):
+                raise Exception("API returned success=False")
+
+            file_data = data.get("file")
+
+            if not file_data:
+                raise Exception("No file data in API")
+
+            filename = file_data.get("name")
+            download_link = file_data.get("link")
+
+            if not filename or not download_link:
+                raise Exception("Missing filename or link")
+
+        # ---------- DOWNLOAD FILE ----------
+        file_path = os.path.join(DOWNLOAD_DIR, filename)
+
+        async with session.get(download_link) as resp:
+
+            if resp.status != 200:
+                raise Exception(f"Download failed: {resp.status}")
+
+            with open(file_path, "wb") as f:
+
+                async for chunk in resp.content.iter_chunked(1024 * 1024):
+
+                    if chunk:
+                        f.write(chunk)
+
+    return filename
+
+import os
+import subprocess
+import json
+import random
+
+DOWNLOAD_DIR = "downloads"
+
+
+def get_video_metadata(filename):
+
+    video_path = os.path.join(DOWNLOAD_DIR, filename)
+
+    if not os.path.exists(video_path):
+        raise Exception("File not found")
+
+    # ----------- GET VIDEO INFO -----------
+    cmd = [
+        "ffprobe",
+        "-v", "quiet",
+        "-print_format", "json",
+        "-show_streams",
+        video_path
+    ]
+
+    result = subprocess.run(cmd, capture_output=True, text=True)
+
+    data = json.loads(result.stdout)
+
+    video_stream = None
+
+    for stream in data["streams"]:
+        if stream["codec_type"] == "video":
+            video_stream = stream
+            break
+
+    if not video_stream:
+        raise Exception("No video stream found")
+
+    width = video_stream.get("width", 0)
+    height = video_stream.get("height", 0)
+
+    duration = int(float(video_stream.get("duration", 0)))
+
+    # ----------- GENERATE RANDOM THUMB -----------
+    thumb_name = f"{filename}_thumb.jpg"
+    thumb_path = os.path.join(DOWNLOAD_DIR, thumb_name)
+
+    # random second (avoid 0)
+    rand_sec = random.randint(1, max(2, duration - 1))
+
+    cmd = [
+        "ffmpeg",
+        "-ss", str(rand_sec),
+        "-i", video_path,
+        "-frames:v", "1",
+        "-q:v", "2",
+        thumb_path,
+        "-y"
+    ]
+
+    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    return duration, width, height, thumb_path
+    
+    
 # ================= LINK DETECTOR =================
 
 @userbot.on_message(filters.chat(A_CHAT))
