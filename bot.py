@@ -5,6 +5,8 @@ import logging
 import aiohttp
 import subprocess
 import random
+import traceback
+
 
 from pyrogram import Client, filters, idle
 from pyrogram.types import Message
@@ -221,8 +223,8 @@ async def process_link(link, msg_id):
         logger.info(f"[PROCESS] Completed for {filename}")
 
     except Exception as e:
-        logger.error(f"[PROCESS ERROR] {e}")
-
+        logger.error(f"[PROCESS ERROR] {str(e)}")
+        logger.error(traceback.format_exc())
 # ================= LINK DETECTOR =================
 
 @userbot.on_message(filters.chat(A_CHAT))
