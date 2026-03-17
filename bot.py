@@ -66,40 +66,37 @@ def save_json(data):
 
 async def download_from_api(link):
 
-    logger.info(f"[API] Requesting API for link: {link}")
+    logger.info(f"[API] Fetching: {link}")
 
     os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-    async with aiohttp.ClientSession() as session:
+    timeout = aiohttp.ClientTimeout(
+        total=None,          # no total timeout
+        sock_connect=60,     # connection timeout
+        sock_read=None       # unlimited read time
+    )
 
-        # -------- API CALL --------
-        async with session.get(API_URL.format(link), timeout=60) as resp:
+    async with aiohttp.ClientSession(timeout=timeout) as session:
 
-            logger.info(f"[API] Status Code: {resp.status}")
+        # -------- API --------
+        async with session.get(API_URL.format(link)) as resp:
 
             if resp.status != 200:
-                raise Exception(f"API HTTP Error: {resp.status}")
+                raise Exception(f"API Error: {resp.status}")
 
             data = await resp.json(content_type=None)
 
             if not data.get("success"):
-                raise Exception("API returned success=False")
+                raise Exception("API failed")
 
-            file = data.get("file")
-            if not file:
-                raise Exception("No file data")
+            file = data["file"]
+            filename = file["name"]
+            download_link = file["link"]
 
-            filename = file.get("name")
-            download_link = file.get("link")
-
-            logger.info(f"[API] Filename: {filename}")
-            logger.info(f"[API] Download link received")
-
-        # sanitize filename
         filename = re.sub(r'[\\/*?:"<>|]', "", filename)
         file_path = os.path.join(DOWNLOAD_DIR, filename)
 
-        logger.info(f"[DOWNLOAD] Starting download: {filename}")
+        logger.info(f"[DOWNLOAD] Starting: {filename}")
 
         # -------- DOWNLOAD --------
         async with session.get(download_link) as resp:
@@ -107,14 +104,37 @@ async def download_from_api(link):
             if resp.status != 200:
                 raise Exception(f"Download failed: {resp.status}")
 
+            total = 0
+
             with open(file_path, "wb") as f:
-                async for chunk in resp.content.iter_chunked(1024 * 1024):
+                async for chunk in resp.content.iter_chunked(2 * 1024 * 1024):  # 2MB chunks
                     if chunk:
                         f.write(chunk)
+                        total += len(chunk)
 
-        logger.info(f"[DOWNLOAD] Completed: {file_path}")
+                        # progress log every 50MB
+                        if total % (50 * 1024 * 1024) < 2 * 1024 * 1024:
+                            logger.info(f"[DOWNLOAD] {round(total/1024/1024,2)} MB downloaded")
+
+        logger.info(f"[DOWNLOAD DONE] {round(total/1024/1024,2)} MB")
+
+        if total < 1024 * 100:
+            raise Exception("File too small → broken download")
 
     return filename
+    
+
+async def safe_download(link, retries=3):
+
+    for i in range(retries):
+        try:
+            return await download_from_api(link)
+        except Exception as e:
+            logger.error(f"[RETRY {i+1}] {e}")
+
+    raise Exception("Download failed after retries")
+
+
 
 # ================= VIDEO METADATA =================
 import cv2
@@ -172,8 +192,7 @@ async def process_link(link, msg_id):
         logger.info(f"[PROCESS] Started for message: {msg_id}")
 
         # -------- DOWNLOAD --------
-        filename = await download_from_api(link)
-
+        filename = await safe_download(link)
         # -------- METADATA --------
         duration, width, height, thumb = get_video_metadata(filename)
 
