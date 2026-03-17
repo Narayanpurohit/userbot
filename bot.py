@@ -192,7 +192,6 @@ async def process_link(link, msg_id):
             supports_streaming=True,
             thumb=thumb
         )
-        logger.info(f"Using client: {client.name}")
 
         logger.info(f"[UPLOAD] Success | Message ID: {sent.id}")
 
