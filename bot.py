@@ -180,7 +180,7 @@ async def process_link(link, msg_id):
         logger.info(f"[UPLOAD] Sending video to C_CHAT...")
 
         # -------- UPLOAD --------
-        sent = await userbot.send_video(
+        sent = await bot.send_video(
             C_CHAT,
             video_path,
             caption=filename,
