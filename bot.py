@@ -115,53 +115,53 @@ async def download_from_api(link):
     return filename
 
 # ================= VIDEO METADATA =================
+import cv2
+import os
+import random
+
+DOWNLOAD_DIR = "downloads"
 
 def get_video_metadata(filename):
-
-    logger.info(f"[META] Extracting metadata for: {filename}")
 
     video_path = os.path.join(DOWNLOAD_DIR, filename)
 
     if not os.path.exists(video_path):
         raise Exception("Video file not found")
 
-    # -------- ffprobe --------
-    cmd = [
-        "ffprobe", "-v", "quiet",
-        "-print_format", "json",
-        "-show_streams", video_path
-    ]
+    cap = cv2.VideoCapture(video_path)
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    data = json.loads(result.stdout)
+    if not cap.isOpened():
+        raise Exception("Cannot open video")
 
-    video_stream = next((s for s in data["streams"] if s["codec_type"] == "video"), None)
+    # -------- METADATA --------
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-    if not video_stream:
-        raise Exception("No video stream found")
+    duration = int(frame_count / fps) if fps > 0 else 0
 
-    width = video_stream.get("width", 0)
-    height = video_stream.get("height", 0)
-    duration = int(float(video_stream.get("duration", 1)))
+    # -------- RANDOM THUMB --------
+    if frame_count > 0:
+        random_frame = random.randint(1, frame_count - 1)
+    else:
+        random_frame = 1
 
-    logger.info(f"[META] Duration: {duration}s | {width}x{height}")
+    cap.set(cv2.CAP_PROP_POS_FRAMES, random_frame)
+    success, frame = cap.read()
 
-    # -------- THUMB --------
     thumb_path = os.path.join(DOWNLOAD_DIR, f"{filename}_thumb.jpg")
 
-    sec = random.randint(1, max(2, duration - 1))
+    if success:
+        cv2.imwrite(thumb_path, frame)
+    else:
+        raise Exception("Thumbnail generation failed")
 
-    logger.info(f"[THUMB] Generating at {sec}s")
-
-    subprocess.run([
-        "ffmpeg", "-ss", str(sec), "-i", video_path,
-        "-frames:v", "1", "-q:v", "2", thumb_path, "-y"
-    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-    logger.info(f"[THUMB] Created: {thumb_path}")
+    cap.release()
 
     return duration, width, height, thumb_path
 
+    
 # ================= MAIN PROCESS =================
 
 async def process_link(link, msg_id):
