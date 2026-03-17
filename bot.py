@@ -113,7 +113,7 @@ async def download_from_api(link):
                         total += len(chunk)
 
                         # progress log every 50MB
-                        if total % (50 * 1024 * 1024) < 2 * 1024 * 1024:
+                        if total % (3 * 1024 * 1024) < 1 * 1024 * 1024:
                             logger.info(f"[DOWNLOAD] {round(total/1024/1024,2)} MB downloaded")
 
         logger.info(f"[DOWNLOAD DONE] {round(total/1024/1024,2)} MB")
