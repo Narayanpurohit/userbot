@@ -227,7 +227,7 @@ async def process_link(link, msg_id):
         logger.error(traceback.format_exc())
 # ================= LINK DETECTOR =================
 
-@userbot.on_message(filters.chat(A_CHAT))
+@bot.on_message(filters.chat(A_CHAT))
 async def detect_links(client, message: Message):
 
     try:
