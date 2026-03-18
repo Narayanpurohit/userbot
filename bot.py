@@ -244,6 +244,26 @@ async def process_link(link, msg_id):
     except Exception as e:
         logger.error(f"[PROCESS ERROR] {str(e)}")
         logger.error(traceback.format_exc())
+        
+
+Y_CHAT = -100XXXXXXXXXX  # apna Y chat id
+
+@userbot.on_message(filters.chat(Y_CHAT))
+async def log_y_chat(client, message: Message):
+
+    try:
+        text = message.text or message.caption or "No text"
+
+        logger.info(f"[Y_CHAT] Message ID: {message.id}")
+        logger.info(f"[Y_CHAT] From: {message.from_user.id if message.from_user else 'Unknown'}")
+        logger.info(f"[Y_CHAT] Content: {text}")
+
+    except Exception as e:
+        logger.error(f"[Y_CHAT ERROR] {e}")
+
+
+
+
 # ================= LINK DETECTOR =================
 
 @bot.on_message(filters.chat(A_CHAT))
