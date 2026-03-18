@@ -24,7 +24,10 @@ API_URL = "https://api.teamdev.sbs/v2/download?url={}&api=teamdev_kz1aeheb0l&jso
 
 A_CHAT = -1002513087490
 C_CHAT = -1002687789677
+D_CHAT = -100xxxxxxxxxx  # yaha apna D chat id daalo
 
+PENDING_FILE = "pending_c.json"
+CURRENT_FILE = "c.json"
 DOWNLOAD_DIR = "downloads"
 DATA_FILE = "data.json"
 
@@ -45,6 +48,16 @@ bot = Client("bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 userbot = Client("userbot", api_id=API_ID, api_hash=API_HASH, session_string=SESSION_STRING)
 
 # ================= JSON =================
+def load_list(file):
+    if not os.path.exists(file):
+        return []
+    with open(file) as f:
+        return json.load(f)
+
+def save_list(file, data):
+    with open(file, "w") as f:
+        json.dump(data, f, indent=4)
+        
 
 def load_json():
     logger.info("Loading JSON data...")
@@ -183,7 +196,78 @@ def get_video_metadata(filename):
 
     return duration, width, height, thumb_path
 
-    
+
+async def process_pending_c():
+
+    try:
+        logger.info("[C_PROCESS] Starting pending processor")
+
+        pending = load_list(PENDING_FILE)
+
+        if not pending:
+            logger.info("[C_PROCESS] No pending IDs")
+            return
+
+        # -------- PICK FIRST ID --------
+        msg_id = pending[0]
+
+        logger.info(f"[C_PROCESS] Picked ID: {msg_id}")
+
+        # -------- SET CURRENT --------
+        save_list(CURRENT_FILE, {"current": msg_id})
+
+        # -------- SEND COMMAND --------
+        await userbot.send_message(D_CHAT, "/genlink")
+        logger.info("[C_PROCESS] Sent /genlink")
+
+        # optional small delay (important)
+        await asyncio.sleep(2)
+
+        # -------- FORWARD MESSAGE --------
+        await userbot.forward_messages(
+            chat_id=D_CHAT,
+            from_chat_id=C_CHAT,
+            message_ids=msg_id
+        )
+
+        logger.info(f"[C_PROCESS] Forwarded message {msg_id}")
+
+        # -------- REMOVE FROM PENDING --------
+        pending.pop(0)
+        save_list(PENDING_FILE, pending)
+
+        logger.info("[C_PROCESS] Removed ID from pending")
+
+        logger.info("[C_PROCESS] Done ✅")
+
+    except Exception as e:
+        logger.error(f"[C_PROCESS ERROR] {e}")
+        logger.error(traceback.format_exc())
+
+def is_c_busy():
+
+    try:
+        if not os.path.exists(CURRENT_FILE):
+            return False
+
+        with open(CURRENT_FILE) as f:
+            data = json.load(f)
+
+        # agar empty ya invalid ho
+        if not data:
+            return False
+
+        # agar "current" key hai aur value present hai
+        if isinstance(data, dict) and data.get("current"):
+            return True
+
+        return False
+
+    except Exception as e:
+        logger.error(f"[C_CHECK ERROR] {e}")
+        return False
+
+
 # ================= MAIN PROCESS =================
 
 async def process_link(link, msg_id):
