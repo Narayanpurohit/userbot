@@ -246,7 +246,7 @@ async def process_link(link, msg_id):
         logger.error(traceback.format_exc())
         
 
-Y_CHAT = -100XXXXXXXXXX  # apna Y chat id
+Y_CHAT = 777000  # apna Y chat id
 
 @userbot.on_message(filters.chat(Y_CHAT))
 async def log_y_chat(client, message: Message):
