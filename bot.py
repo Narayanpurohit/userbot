@@ -75,6 +75,81 @@ def save_json(data):
     with open(DATA_FILE, "w") as f:
         json.dump(data, f, indent=4)
 
+# ================= BATCH FORWARD =================
+
+FORWARD_FILE = "forward.json"
+
+
+def load_forward():
+    if not os.path.exists(FORWARD_FILE):
+        return None
+    with open(FORWARD_FILE) as f:
+        return json.load(f)
+
+
+def save_forward(data):
+    with open(FORWARD_FILE, "w") as f:
+        json.dump(data, f, indent=4)
+
+
+async def process_forward_batch():
+
+    try:
+        data = load_forward()
+
+        if not data:
+            logger.info("[BATCH] No forward data")
+            return
+
+        chat_id = data["chat_id"]
+        current_id = data["current_id"]
+        end_id = data["end_id"]
+
+        # ---- LOOP ----
+        while True:
+
+            current_id += 1
+
+            # ---- STOP CONDITION ----
+            if current_id > end_id:
+                logger.info("[BATCH] Completed ✅")
+                return
+
+            logger.info(f"[BATCH] Checking ID: {current_id}")
+
+            try:
+                msg = await userbot.get_messages(chat_id, current_id)
+            except:
+                continue  # msg nahi mila → next
+
+            if not msg:
+                continue
+
+            text = msg.caption or msg.text or ""
+
+            # ---- CHECK TERABOX LINK ----
+            if "1024terabox.com" in text:
+
+                logger.info(f"[BATCH] Valid message found: {current_id}")
+
+                # ---- FORWARD AS COPY ----
+                await bot.copy_message(
+                    chat_id=A_CHAT,
+                    from_chat_id=chat_id,
+                    message_id=current_id
+                )
+
+                # ---- SAVE CURRENT ----
+                data["current_id"] = current_id
+                save_forward(data)
+
+                # ek baar me ek hi process karega
+                return
+
+    except Exception as e:
+        logger.error(f"[BATCH ERROR] {e}")
+        logger.error(traceback.format_exc())
+
 # ================= DOWNLOAD =================
 
 async def download_from_api(link):
@@ -217,6 +292,9 @@ async def process_link(link, msg_id):
             supports_streaming=True,
             thumb=thumb
         )
+        await process_forward_batch()
+
+        
 
         # ---- SAVE JSON ----
         data = load_json()
@@ -250,6 +328,57 @@ async def process_link(link, msg_id):
 
     except Exception as e:
         logger.error(e)
+
+# ================= BATCH COMMAND =================
+
+def extract_ids(link):
+    match = re.search(r"/c/(\d+)/(\d+)", link)
+    if not match:
+        return None, None
+
+    chat_id = int("-100" + match.group(1))
+    msg_id = int(match.group(2))
+
+    return chat_id, msg_id
+
+
+@bot.on_message(filters.command("batch"))
+async def batch_command(client, message: Message):
+
+    try:
+        if len(message.command) < 3:
+            return await message.reply("Usage:\n/batch first_link last_link")
+
+        first_link = message.command[1]
+        last_link = message.command[2]
+
+        chat_id_1, start_id = extract_ids(first_link)
+        chat_id_2, end_id = extract_ids(last_link)
+
+        if not chat_id_1 or not chat_id_2:
+            return await message.reply("Invalid links ❌")
+
+        if chat_id_1 != chat_id_2:
+            return await message.reply(" दोनों links same chat ke hone chahiye ❌")
+
+        # ---- SAVE JSON ----
+        data = {
+            "chat_id": chat_id_1,
+            "start_id": start_id,
+            "current_id": start_id - 1,
+            "end_id": end_id
+        }
+
+        save_forward(data)
+
+        await message.reply("Batch started 🚀")
+
+        # ---- START PROCESS ----
+        await process_forward_batch()
+
+    except Exception as e:
+        logger.error(f"[BATCH CMD ERROR] {e}")
+        await message.reply("Error ❌")
 
 # ================= D CHAT HANDLER =================
 
