@@ -29,7 +29,7 @@ API_URL = "https://api.teamdev.sbs/v2/download?url={}&api=teamdev_kz1aeheb0l&jso
 
 A_CHAT = -1002513087490   # Source chat (links aate hain)
 C_CHAT = -1002687789677   # Upload chat
-D_CHAT = -100xxxxxxxxxx   # Genlink chat
+D_CHAT = 7607289349   # Genlink chat
 
 PENDING_FILE = "pending_c.json"   # Queue list
 CURRENT_FILE = "c.json"           # Currently processing
