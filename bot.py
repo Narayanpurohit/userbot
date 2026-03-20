@@ -145,23 +145,52 @@ async def process_forward_batch():
 
 async def download_from_api(link):
 
+    logger.info(f"[API] Requesting: {link}")
+
     os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
     async with aiohttp.ClientSession() as session:
 
         async with session.get(API_URL.format(link)) as resp:
+
+            if resp.status != 200:
+                raise Exception(f"API HTTP Error: {resp.status}")
+
             data = await resp.json(content_type=None)
 
-            file = data["file"]
-            filename = re.sub(r'[\\/*?:"<>|]', "", file["name"])
-            download_link = file["link"]
+            logger.info(f"[API RESPONSE] {data}")
 
+            # -------- VALIDATION --------
+            if not data.get("success"):
+                raise Exception(f"API Failed: {data}")
+
+            if "file" not in data:
+                raise Exception(f"No file key in API response: {data}")
+
+            file = data["file"]
+
+            filename = file.get("name")
+            download_link = file.get("link")
+
+            if not filename or not download_link:
+                raise Exception(f"Invalid file data: {file}")
+
+        filename = re.sub(r'[\\/*?:"<>|]', "", filename)
         path = os.path.join(DOWNLOAD_DIR, filename)
 
+        logger.info(f"[DOWNLOAD] Starting: {filename}")
+
         async with session.get(download_link) as resp:
+
+            if resp.status != 200:
+                raise Exception(f"Download HTTP Error: {resp.status}")
+
             with open(path, "wb") as f:
                 async for chunk in resp.content.iter_chunked(2 * 1024 * 1024):
-                    f.write(chunk)
+                    if chunk:
+                        f.write(chunk)
+
+        logger.info(f"[DOWNLOAD DONE] {filename}")
 
     return filename
 
@@ -171,11 +200,14 @@ async def safe_download(link, retries=3):
     for i in range(retries):
         try:
             return await download_from_api(link)
+
         except Exception as e:
             logger.error(f"[RETRY {i+1}] {e}")
 
-    raise Exception("Download failed")
+            # optional delay
+            await asyncio.sleep(2)
 
+    raise Exception("Download failed after retries")
 # ================= METADATA =================
 
 def get_video_metadata(filename):
