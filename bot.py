@@ -22,10 +22,10 @@ SESSION_STRING = "BQDnz0IAJzOoxRzgimGKUJn10SeMh23vIVn7VzZRkHqfHvzdAs7Tc2vKY_li_d
 
 API_URL = "https://api.teamdev.sbs/v2/download?url={}&api=teamdev_kz1aeheb0l&json=1"
 
-
 A_CHAT = -1002513087490
 C_CHAT = -1002687789677
 D_CHAT = 7607289349
+ERROR_CHAT = 6789146594
 
 PENDING_FILE = "pending_c.json"
 CURRENT_FILE = "c.json"
@@ -36,7 +36,7 @@ DOWNLOAD_DIR = "downloads"
 
 LINK_REGEX = r"(https?://\S+|t\.me/\S+)"
 
-# ================= ADVANCED LOGGING =================
+# ================= LOGGING =================
 
 LOG_FILE = "bot.log"
 
@@ -56,162 +56,121 @@ logger = logging.getLogger("AutoUploader")
 bot = Client("bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 userbot = Client("userbot", api_id=API_ID, api_hash=API_HASH, session_string=SESSION_STRING)
 
-# ================= JSON HELPERS =================
+# ================= JSON =================
 
 def load_list(file):
+    logger.info(f"[JSON] Loading list from {file}")
     if not os.path.exists(file):
+        logger.warning(f"[JSON] File not found: {file}")
         return []
     with open(file) as f:
-        return json.load(f)
+        data = json.load(f)
+    logger.info(f"[JSON] Loaded {len(data)} items")
+    return data
 
 def save_list(file, data):
+    logger.info(f"[JSON] Saving list to {file} ({len(data)} items)")
     with open(file, "w") as f:
         json.dump(data, f, indent=4)
 
 def load_json():
+    logger.info("[JSON] Loading data.json")
     if not os.path.exists(DATA_FILE):
         return {}
     with open(DATA_FILE) as f:
         return json.load(f)
 
 def save_json(data):
+    logger.info(f"[JSON] Saving data.json ({len(data)} entries)")
     with open(DATA_FILE, "w") as f:
         json.dump(data, f, indent=4)
 
 def load_forward():
+    logger.info("[BATCH] Loading forward.json")
     if not os.path.exists(FORWARD_FILE):
         return None
     with open(FORWARD_FILE) as f:
         return json.load(f)
 
 def save_forward(data):
+    logger.info("[BATCH] Saving forward.json")
     with open(FORWARD_FILE, "w") as f:
         json.dump(data, f, indent=4)
-
-# ================= BATCH PROCESS =================
-
-async def process_forward_batch():
-
-    logger.info("🚀 [BATCH] Started")
-
-    try:
-        data = load_forward()
-        if not data:
-            logger.warning("[BATCH] No data")
-            return
-
-        chat_id = data["chat_id"]
-        current_id = data["current_id"]
-        end_id = data["end_id"]
-
-        while True:
-            current_id += 1
-
-            if current_id > end_id:
-                logger.info("✅ [BATCH] Completed")
-                return
-
-            logger.info(f"[BATCH] Checking: {current_id}")
-
-            try:
-                msg = await userbot.get_messages(chat_id, current_id)
-            except Exception as e:
-                logger.warning(f"[BATCH] Fetch fail {current_id}")
-                continue
-
-            if not msg:
-                continue
-
-            text = msg.caption or msg.text or ""
-
-            if "1024terabox.com" in text:
-
-                logger.info(f"[BATCH] Found valid: {current_id}")
-
-                await bot.copy_message(
-                    A_CHAT,
-                    chat_id,
-                    current_id
-                )
-
-                data["current_id"] = current_id
-                save_forward(data)
-
-                return
-
-    except Exception as e:
-        logger.error(traceback.format_exc())
 
 # ================= DOWNLOAD =================
 
 async def download_from_api(link):
 
-    logger.info(f"[API] Requesting: {link}")
+    logger.info(f"[API] Request: {link}")
 
     os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
     async with aiohttp.ClientSession() as session:
 
         async with session.get(API_URL.format(link)) as resp:
-
-            if resp.status != 200:
-                raise Exception(f"API HTTP Error: {resp.status}")
+            logger.info(f"[API] Status: {resp.status}")
 
             data = await resp.json(content_type=None)
+            logger.info(f"[API] Response: {data}")
 
-            logger.info(f"[API RESPONSE] {data}")
-
-            # -------- VALIDATION --------
             if not data.get("success"):
                 raise Exception(f"API Failed: {data}")
 
-            if "file" not in data:
-                raise Exception(f"No file key in API response: {data}")
+            file = data.get("file")
+            if not file:
+                raise Exception("No file in response")
 
-            file = data["file"]
-
-            filename = file.get("name")
+            filename = re.sub(r'[\\/*?:"<>|]', "", file.get("name"))
             download_link = file.get("link")
 
-            if not filename or not download_link:
-                raise Exception(f"Invalid file data: {file}")
+            logger.info(f"[API] File: {filename}")
+            logger.info(f"[API] DL Link: {download_link}")
 
-        filename = re.sub(r'[\\/*?:"<>|]', "", filename)
         path = os.path.join(DOWNLOAD_DIR, filename)
 
-        logger.info(f"[DOWNLOAD] Starting: {filename}")
-
         async with session.get(download_link) as resp:
+            logger.info(f"[DOWNLOAD] Status: {resp.status}")
 
             if resp.status != 200:
                 raise Exception(f"Download HTTP Error: {resp.status}")
 
             with open(path, "wb") as f:
                 async for chunk in resp.content.iter_chunked(2 * 1024 * 1024):
-                    if chunk:
-                        f.write(chunk)
+                    f.write(chunk)
 
-        logger.info(f"[DOWNLOAD DONE] {filename}")
-
+    logger.info(f"[DOWNLOAD] Completed: {filename}")
     return filename
 
+# ================= SAFE DOWNLOAD =================
 
-async def safe_download(link, retries=3):
+async def safe_download(link):
 
-    for i in range(retries):
+    logger.info(f"[SAFE DOWNLOAD] Start: {link}")
+
+    try:
+        filename = await download_from_api(link)
+        return filename
+
+    except Exception as e:
+
+        logger.error(f"[SAFE DOWNLOAD ERROR] {e}")
+        logger.error(traceback.format_exc())
+
         try:
-            return await download_from_api(link)
+            await userbot.send_message(
+                ERROR_CHAT,
+                f"❌ Download Failed\n\nLink: {link}\n\nError:\n{e}"
+            )
+        except Exception as send_err:
+            logger.error(f"[ERROR SEND FAIL] {send_err}")
 
-        except Exception as e:
-            logger.error(f"[RETRY {i+1}] {e}")
+        raise Exception("Download failed")
 
-            # optional delay
-            await asyncio.sleep(2)
-
-    raise Exception("Download failed after retries")
 # ================= METADATA =================
 
 def get_video_metadata(filename):
+
+    logger.info(f"[META] Processing: {filename}")
 
     path = os.path.join(DOWNLOAD_DIR, filename)
     cap = cv2.VideoCapture(path)
@@ -234,21 +193,25 @@ def get_video_metadata(filename):
 
     cap.release()
 
+    logger.info(f"[META] Done: {duration}s {width}x{height}")
+
     return duration, width, height, thumb
 
 # ================= QUEUE =================
 
 async def process_pending_c():
 
-    logger.info("⚙️ [QUEUE] Running")
+    logger.info("[QUEUE] Start processing")
 
     try:
         pending = load_list(PENDING_FILE)
 
         if not pending:
+            logger.info("[QUEUE] Empty")
             return
 
         msg_id = pending[0]
+        logger.info(f"[QUEUE] Processing ID: {msg_id}")
 
         save_list(CURRENT_FILE, {"current": msg_id})
 
@@ -260,17 +223,21 @@ async def process_pending_c():
         pending.pop(0)
         save_list(PENDING_FILE, pending)
 
+        logger.info("[QUEUE] Done")
+
     except Exception as e:
         logger.error(traceback.format_exc())
 
 def is_c_busy():
+    logger.info("[CHECK] Checking busy state")
 
     if not os.path.exists(CURRENT_FILE):
         return False
 
     try:
         with open(CURRENT_FILE) as f:
-            return bool(json.load(f).get("current"))
+            data = json.load(f)
+        return bool(data.get("current"))
     except:
         return False
 
@@ -278,7 +245,7 @@ def is_c_busy():
 
 async def process_link(link, msg_id):
 
-    logger.info(f"[PROCESS] Start {msg_id}")
+    logger.info(f"[PROCESS] Start | MsgID: {msg_id}")
 
     try:
         filename = await safe_download(link)
@@ -298,9 +265,7 @@ async def process_link(link, msg_id):
             thumb=thumb
         )
 
-        logger.info(f"[UPLOAD] {sent.id}")
-
-        await process_forward_batch()
+        logger.info(f"[UPLOAD] Done: {sent.id}")
 
         data = load_json()
 
@@ -335,11 +300,16 @@ async def process_link(link, msg_id):
 @userbot.on_message(filters.chat(D_CHAT))
 async def handle_d_chat(client, message: Message):
 
+    logger.info(f"[D_CHAT] New message: {message.id}")
+
     try:
         text = message.text or message.caption or ""
         links = re.findall(LINK_REGEX, text)
 
-        if not links or not is_c_busy():
+        if not links:
+            return
+
+        if not is_c_busy():
             return
 
         new_link = links[0]
@@ -374,16 +344,17 @@ async def handle_d_chat(client, message: Message):
 
         await process_pending_c()
 
-    except Exception as e:
+    except Exception:
         logger.error(traceback.format_exc())
 
-# ================= LINK DETECTOR =================
+# ================= DETECTOR =================
 
 @bot.on_message(filters.chat(A_CHAT))
 async def detect_links(client, message: Message):
 
-    text = message.text or message.caption
+    logger.info(f"[DETECT] Msg: {message.id}")
 
+    text = message.text or message.caption
     if not text:
         return
 
@@ -392,45 +363,12 @@ async def detect_links(client, message: Message):
     for link in links:
         await process_link(link, message.id)
 
-# ================= BATCH COMMAND =================
-
-def extract_ids(link):
-    m = re.search(r"/c/(\d+)/(\d+)", link)
-    if not m:
-        return None, None
-    return int("-100" + m.group(1)), int(m.group(2))
-
-@bot.on_message(filters.command("batch"))
-async def batch(client, message):
-
-    try:
-        f, l = message.command[1], message.command[2]
-
-        c1, s = extract_ids(f)
-        c2, e = extract_ids(l)
-
-        data = {
-            "chat_id": c1,
-            "start_id": s,
-            "current_id": s - 1,
-            "end_id": e
-        }
-
-        save_forward(data)
-
-        await message.reply("Batch Started 🚀")
-
-        await process_forward_batch()
-
-    except:
-        await message.reply("Error")
-
 # ================= RUN =================
 
 async def main():
     await bot.start()
     await userbot.start()
-    logger.info("🚀 Bot Started")
+    logger.info("🚀 BOT STARTED")
     await idle()
 
 if __name__ == "__main__":
