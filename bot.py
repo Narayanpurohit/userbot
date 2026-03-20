@@ -22,6 +22,7 @@ SESSION_STRING = "BQDnz0IAJzOoxRzgimGKUJn10SeMh23vIVn7VzZRkHqfHvzdAs7Tc2vKY_li_d
 
 API_URL = "https://api.teamdev.sbs/v2/download?url={}&api=teamdev_kz1aeheb0l&json=1"
 
+
 A_CHAT = -1002513087490
 C_CHAT = -1002687789677
 D_CHAT = 7607289349
