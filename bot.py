@@ -1,8 +1,3 @@
-
-# ================= CONFIG =================
-
-
-
 import os
 import re
 import json
@@ -27,23 +22,30 @@ SESSION_STRING = "BQDnz0IAJzOoxRzgimGKUJn10SeMh23vIVn7VzZRkHqfHvzdAs7Tc2vKY_li_d
 
 API_URL = "https://api.teamdev.sbs/v2/download?url={}&api=teamdev_kz1aeheb0l&json=1"
 
-A_CHAT = -1002513087490   # Source chat (links aate hain)
-C_CHAT = -1002687789677   # Upload chat
-D_CHAT = 7607289349   # Genlink chat
+A_CHAT = -1002513087490
+C_CHAT = -1002687789677
+D_CHAT = 7607289349
 
-PENDING_FILE = "pending_c.json"   # Queue list
-CURRENT_FILE = "c.json"           # Currently processing
+PENDING_FILE = "pending_c.json"
+CURRENT_FILE = "c.json"
 DATA_FILE = "data.json"
+FORWARD_FILE = "forward.json"
 
 DOWNLOAD_DIR = "downloads"
 
 LINK_REGEX = r"(https?://\S+|t\.me/\S+)"
 
-# ================= LOGGING =================
+# ================= ADVANCED LOGGING =================
+
+LOG_FILE = "bot.log"
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
+    format="%(asctime)s | %(levelname)s | %(funcName)s:%(lineno)d | %(message)s",
+    handlers=[
+        logging.FileHandler(LOG_FILE),
+        logging.StreamHandler()
+    ]
 )
 
 logger = logging.getLogger("AutoUploader")
@@ -75,79 +77,68 @@ def save_json(data):
     with open(DATA_FILE, "w") as f:
         json.dump(data, f, indent=4)
 
-# ================= BATCH FORWARD =================
-
-FORWARD_FILE = "forward.json"
-
-
 def load_forward():
     if not os.path.exists(FORWARD_FILE):
         return None
     with open(FORWARD_FILE) as f:
         return json.load(f)
 
-
 def save_forward(data):
     with open(FORWARD_FILE, "w") as f:
         json.dump(data, f, indent=4)
 
+# ================= BATCH PROCESS =================
 
 async def process_forward_batch():
 
+    logger.info("🚀 [BATCH] Started")
+
     try:
         data = load_forward()
-
         if not data:
-            logger.info("[BATCH] No forward data")
+            logger.warning("[BATCH] No data")
             return
 
         chat_id = data["chat_id"]
         current_id = data["current_id"]
         end_id = data["end_id"]
 
-        # ---- LOOP ----
         while True:
-
             current_id += 1
 
-            # ---- STOP CONDITION ----
             if current_id > end_id:
-                logger.info("[BATCH] Completed ✅")
+                logger.info("✅ [BATCH] Completed")
                 return
 
-            logger.info(f"[BATCH] Checking ID: {current_id}")
+            logger.info(f"[BATCH] Checking: {current_id}")
 
             try:
                 msg = await userbot.get_messages(chat_id, current_id)
-            except:
-                continue  # msg nahi mila → next
+            except Exception as e:
+                logger.warning(f"[BATCH] Fetch fail {current_id}")
+                continue
 
             if not msg:
                 continue
 
             text = msg.caption or msg.text or ""
 
-            # ---- CHECK TERABOX LINK ----
             if "1024terabox.com" in text:
 
-                logger.info(f"[BATCH] Valid message found: {current_id}")
+                logger.info(f"[BATCH] Found valid: {current_id}")
 
-                # ---- FORWARD AS COPY ----
                 await bot.copy_message(
-                    chat_id=A_CHAT,
-                    from_chat_id=chat_id,
-                    message_id=current_id
+                    A_CHAT,
+                    chat_id,
+                    current_id
                 )
 
-                # ---- SAVE CURRENT ----
                 data["current_id"] = current_id
                 save_forward(data)
 
-                # ek baar me ek hi process karega
                 return
 
     except Exception as e:
-        logger.error(f"[BATCH ERROR] {e}")
         logger.error(traceback.format_exc())
 
 # ================= DOWNLOAD =================
@@ -158,23 +149,19 @@ async def download_from_api(link):
 
     async with aiohttp.ClientSession() as session:
 
-        # ---- API CALL ----
         async with session.get(API_URL.format(link)) as resp:
-
             data = await resp.json(content_type=None)
 
             file = data["file"]
             filename = re.sub(r'[\\/*?:"<>|]', "", file["name"])
             download_link = file["link"]
 
-        file_path = os.path.join(DOWNLOAD_DIR, filename)
+        path = os.path.join(DOWNLOAD_DIR, filename)
 
-        # ---- DOWNLOAD FILE ----
         async with session.get(download_link) as resp:
-            with open(file_path, "wb") as f:
+            with open(path, "wb") as f:
                 async for chunk in resp.content.iter_chunked(2 * 1024 * 1024):
-                    if chunk:
-                        f.write(chunk)
+                    f.write(chunk)
 
     return filename
 
@@ -189,24 +176,22 @@ async def safe_download(link, retries=3):
 
     raise Exception("Download failed")
 
-# ================= VIDEO METADATA =================
+# ================= METADATA =================
 
 def get_video_metadata(filename):
 
     path = os.path.join(DOWNLOAD_DIR, filename)
-
     cap = cv2.VideoCapture(path)
 
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    width = int(cap.get(3))
+    height = int(cap.get(4))
+    fps = cap.get(5)
+    frames = int(cap.get(7))
 
     duration = int(frames / fps) if fps > 0 else 0
 
-    # ---- RANDOM THUMB ----
     frame_no = random.randint(1, frames - 1) if frames > 0 else 1
-    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_no)
+    cap.set(1, frame_no)
     success, frame = cap.read()
 
     thumb = os.path.join(DOWNLOAD_DIR, f"{filename}_thumb.jpg")
@@ -218,9 +203,11 @@ def get_video_metadata(filename):
 
     return duration, width, height, thumb
 
-# ================= QUEUE PROCESS =================
+# ================= QUEUE =================
 
 async def process_pending_c():
+
+    logger.info("⚙️ [QUEUE] Running")
 
     try:
         pending = load_list(PENDING_FILE)
@@ -230,29 +217,18 @@ async def process_pending_c():
 
         msg_id = pending[0]
 
-        # ---- SET CURRENT ----
         save_list(CURRENT_FILE, {"current": msg_id})
 
-        # ---- SEND COMMAND ----
         await userbot.send_message(D_CHAT, "/genlink")
-
         await asyncio.sleep(2)
 
-        # ---- FORWARD ----
-        await userbot.forward_messages(
-            chat_id=D_CHAT,
-            from_chat_id=C_CHAT,
-            message_ids=msg_id
-        )
+        await userbot.forward_messages(D_CHAT, C_CHAT, msg_id)
 
-        # ---- REMOVE FROM QUEUE ----
         pending.pop(0)
         save_list(PENDING_FILE, pending)
 
     except Exception as e:
-        logger.error(e)
-
-# ================= BUSY CHECK =================
+        logger.error(traceback.format_exc())
 
 def is_c_busy():
 
@@ -261,30 +237,26 @@ def is_c_busy():
 
     try:
         with open(CURRENT_FILE) as f:
-            data = json.load(f)
-
-        return bool(data.get("current"))
-
+            return bool(json.load(f).get("current"))
     except:
         return False
 
-# ================= MAIN PROCESS =================
+# ================= MAIN =================
 
 async def process_link(link, msg_id):
 
+    logger.info(f"[PROCESS] Start {msg_id}")
+
     try:
-        # ---- DOWNLOAD ----
         filename = await safe_download(link)
 
-        # ---- METADATA ----
         duration, width, height, thumb = get_video_metadata(filename)
 
-        video_path = os.path.join(DOWNLOAD_DIR, filename)
+        path = os.path.join(DOWNLOAD_DIR, filename)
 
-        # ---- UPLOAD ----
         sent = await bot.send_video(
             C_CHAT,
-            video_path,
+            path,
             caption=filename,
             duration=duration,
             width=width,
@@ -292,11 +264,11 @@ async def process_link(link, msg_id):
             supports_streaming=True,
             thumb=thumb
         )
+
+        logger.info(f"[UPLOAD] {sent.id}")
+
         await process_forward_batch()
 
-        
-
-        # ---- SAVE JSON ----
         data = load_json()
 
         key = f"{msg_id}_{sent.id}"
@@ -310,101 +282,40 @@ async def process_link(link, msg_id):
 
         save_json(data)
 
-        # ================= QUEUE SYSTEM =================
-
         pending = load_list(PENDING_FILE)
 
         if sent.id not in pending:
             pending.append(sent.id)
             save_list(PENDING_FILE, pending)
 
-        # ---- TRIGGER QUEUE ----
         if not is_c_busy():
             await process_pending_c()
 
-        # ---- CLEANUP ----
-        os.remove(video_path)
+        os.remove(path)
         os.remove(thumb)
 
     except Exception as e:
-        logger.error(e)
+        logger.error(traceback.format_exc())
 
-# ================= BATCH COMMAND =================
-
-def extract_ids(link):
-    match = re.search(r"/c/(\d+)/(\d+)", link)
-    if not match:
-        return None, None
-
-    chat_id = int("-100" + match.group(1))
-    msg_id = int(match.group(2))
-
-    return chat_id, msg_id
-
-
-@bot.on_message(filters.command("batch"))
-async def batch_command(client, message: Message):
-
-    try:
-        if len(message.command) < 3:
-            return await message.reply("Usage:\n/batch first_link last_link")
-
-        first_link = message.command[1]
-        last_link = message.command[2]
-
-        chat_id_1, start_id = extract_ids(first_link)
-        chat_id_2, end_id = extract_ids(last_link)
-
-        if not chat_id_1 or not chat_id_2:
-            return await message.reply("Invalid links ❌")
-
-        if chat_id_1 != chat_id_2:
-            return await message.reply(" दोनों links same chat ke hone chahiye ❌")
-
-        # ---- SAVE JSON ----
-        data = {
-            "chat_id": chat_id_1,
-            "start_id": start_id,
-            "current_id": start_id - 1,
-            "end_id": end_id
-        }
-
-        save_forward(data)
-
-        await message.reply("Batch started 🚀")
-
-        # ---- START PROCESS ----
-        await process_forward_batch()
-
-    except Exception as e:
-        logger.error(f"[BATCH CMD ERROR] {e}")
-        await message.reply("Error ❌")
-
-# ================= D CHAT HANDLER =================
+# ================= D CHAT =================
 
 @userbot.on_message(filters.chat(D_CHAT))
 async def handle_d_chat(client, message: Message):
 
     try:
         text = message.text or message.caption or ""
-
         links = re.findall(LINK_REGEX, text)
 
-        if not links:
+        if not links or not is_c_busy():
             return
 
         new_link = links[0]
 
-        if not is_c_busy():
-            return
-
-        # ---- GET CURRENT ----
         with open(CURRENT_FILE) as f:
             current_id = json.load(f).get("current")
 
         data = load_json()
 
-        # ---- FIND ENTRY ----
         for key, val in data.items():
 
             if val["C_MSG_ID"] == current_id:
@@ -412,7 +323,6 @@ async def handle_d_chat(client, message: Message):
                 val["D_CHAT_LINK"] = new_link
                 save_json(data)
 
-                # ---- EDIT CAPTION ----
                 msg = await bot.get_messages(A_CHAT, val["A_MSG_ID"])
 
                 caption = msg.caption or ""
@@ -429,11 +339,10 @@ async def handle_d_chat(client, message: Message):
 
                 break
 
-        # ---- NEXT QUEUE ----
         await process_pending_c()
 
     except Exception as e:
-        logger.error(e)
+        logger.error(traceback.format_exc())
 
 # ================= LINK DETECTOR =================
 
@@ -450,12 +359,45 @@ async def detect_links(client, message: Message):
     for link in links:
         await process_link(link, message.id)
 
+# ================= BATCH COMMAND =================
+
+def extract_ids(link):
+    m = re.search(r"/c/(\d+)/(\d+)", link)
+    if not m:
+        return None, None
+    return int("-100" + m.group(1)), int(m.group(2))
+
+@bot.on_message(filters.command("batch"))
+async def batch(client, message):
+
+    try:
+        f, l = message.command[1], message.command[2]
+
+        c1, s = extract_ids(f)
+        c2, e = extract_ids(l)
+
+        data = {
+            "chat_id": c1,
+            "start_id": s,
+            "current_id": s - 1,
+            "end_id": e
+        }
+
+        save_forward(data)
+
+        await message.reply("Batch Started 🚀")
+
+        await process_forward_batch()
+
+    except:
+        await message.reply("Error")
+
 # ================= RUN =================
 
 async def main():
     await bot.start()
     await userbot.start()
-    print("Bot Started 🚀")
+    logger.info("🚀 Bot Started")
     await idle()
 
 if __name__ == "__main__":
