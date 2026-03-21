@@ -13,7 +13,7 @@ from telethon import TelegramClient, events
 API_ID = 15191874
 API_HASH = "3037d39233c6fad9b80d83bb8a339a07"
 
-BOT_TOKEN = "7350676839:AAGlgApZke3RNYzS2ggLBdJjOiBmOq7Tq_U"
+BOT_TOKEN = "7350676839:AAFMEhALeArmgixnlAjNGHEDdmgV93Gy_KQ"
 
 
 API_URL = "https://api.teamdev.sbs/v2/download?url={}&api=teamdev_kz1aeheb0l&json=1"
