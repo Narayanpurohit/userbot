@@ -7,6 +7,7 @@ import traceback
 import cv2
 
 from telethon import TelegramClient, events
+from telethon.tl.types import DocumentAttributeVideo
 
 # ================= CONFIG =================
 
@@ -113,7 +114,7 @@ def get_video_metadata(filename):
     fps = cap.get(5)
     frames = int(cap.get(7))
 
-    duration = int(frames / fps) if fps > 0 else 0
+    duration = int(frames / fps) if fps > 0 else 1
 
     frame_no = 1 if frames <= 1 else int(frames / 2)
     cap.set(1, frame_no)
@@ -145,20 +146,21 @@ async def process_link(link, msg_id):
 
         path = os.path.join(DOWNLOAD_DIR, filename)
 
-        # Upload with metadata
+        # Upload with correct metadata
         sent = await bot.send_file(
             C_CHAT,
             path,
             caption=filename,
             supports_streaming=True,
             attributes=[
-                {
-                    "duration": duration,
-                    "w": width,
-                    "h": height
-                }
+                DocumentAttributeVideo(
+                    duration=int(duration),
+                    w=int(width),
+                    h=int(height),
+                    supports_streaming=True
+                )
             ],
-            thumb=thumb
+            thumb=thumb if os.path.exists(thumb) else None
         )
 
         logger.info(f"[UPLOAD] Done: {sent.id}")
@@ -178,7 +180,8 @@ async def process_link(link, msg_id):
 
         # Cleanup
         os.remove(path)
-        os.remove(thumb)
+        if os.path.exists(thumb):
+            os.remove(thumb)
 
     except Exception:
         logger.error(traceback.format_exc())
