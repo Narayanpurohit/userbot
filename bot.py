@@ -58,6 +58,62 @@ def save_json(data):
 
 # ================= DOWNLOAD =================
 
+FORWARD_FILE = "forward.json"
+
+def load_forward():
+    if not os.path.exists(FORWARD_FILE):
+        return None
+    with open(FORWARD_FILE) as f:
+        return json.load(f)
+
+def save_forward(data):
+    with open(FORWARD_FILE, "w") as f:
+        json.dump(data, f, indent=4)
+
+
+async def batch_forward_once():
+
+    data = load_forward()
+
+    if not data:
+        logger.info("[BATCH] No data")
+        return
+
+    current = data.get("current")
+    last = data.get("last")
+
+    # Stop condition
+    if current > last:
+        logger.info("[BATCH] Completed")
+        return
+
+    try:
+        # Fetch message
+        msg = await bot.get_messages(B_CHAT, ids=current)
+
+        if not msg:
+            logger.warning(f"[BATCH] Not found: {current}")
+        else:
+            # Forward as copy
+            await bot.send_message(
+                A_CHAT,
+                msg.message or "",
+                file=msg.media
+            )
+
+            logger.info(f"[BATCH] Forwarded: {current}")
+
+    except Exception:
+        logger.error(traceback.format_exc())
+
+    # Increment and save
+    data["current"] = current + 1
+    save_forward(data)
+    
+
+
+
+
 async def download_from_api(link):
 
     logger.info(f"[API] Request: {link}")
@@ -229,6 +285,25 @@ async def reset_file(event):
 
     await event.reply(f"✅ Reset done: {filename}")
 
+
+
+@bot.on(events.NewMessage(pattern=r'^/batch (\d+) (\d+)'))
+async def batch_command(event):
+
+    current = int(event.pattern_match.group(1))
+    last = int(event.pattern_match.group(2))
+
+    data = {
+        "current": current,
+        "last": last
+    }
+
+    save_forward(data)
+
+    await event.reply(f"✅ Batch set\nFrom: {current}\nTo: {last}")
+
+    # Run only once
+    await batch_forward_once()
 # ================= RUN =================
 
 def main():
