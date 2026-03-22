@@ -15,6 +15,7 @@ API_ID = 15191874
 API_HASH = "3037d39233c6fad9b80d83bb8a339a07"
 
 BOT_TOKEN = "7350676839:AAFMEhALeArmgixnlAjNGHEDdmgV93Gy_KQ"
+BOT_TOKEN2 = "7782443871:AAH9IxP3YaIxGTz8LyIB2WPjW5n6pKw6_Vg"
 
 
 API_URL = "https://api.teamdev.sbs/v2/download?url={}&api=teamdev_kz1aeheb0l&json=1"
@@ -44,6 +45,7 @@ logger = logging.getLogger("AutoUploader")
 # ================= CLIENT =================
 
 bot = TelegramClient("bot", API_ID, API_HASH).start(bot_token=BOT_TOKEN)
+bot2 = TelegramClient("bot", API_ID, API_HASH).start(bot_token=BOT_TOKEN2)
 
 # ================= JSON =================
 
@@ -90,13 +92,13 @@ async def batch_forward_once():
 
     try:
         # Fetch message
-        msg = await bot.get_messages(B_CHAT, ids=current)
+        msg = await bot2.get_messages(B_CHAT, ids=current)
 
         if not msg:
             logger.warning(f"[BATCH] Not found: {current}")
         else:
             # Forward as copy
-            await bot.send_message(
+            await bot2.send_message(
                 A_CHAT,
                 msg.message or "",
                 file=msg.media
