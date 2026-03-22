@@ -239,6 +239,7 @@ async def process_link(link, msg_id):
         os.remove(path)
         if os.path.exists(thumb):
             os.remove(thumb)
+        
 
     except Exception:
         logger.error(traceback.format_exc())
@@ -256,6 +257,7 @@ async def detect_links(event):
 
     for link in links:
         await process_link(link, event.message.id)
+    await batch_forward_once()
 
 # ================= COMMANDS =================
 
