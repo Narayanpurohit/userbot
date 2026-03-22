@@ -125,7 +125,8 @@ async def download_from_api(link):
 
     os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-    async with aiohttp.ClientSession() as session:
+    timeout = aiohttp.ClientTimeout(total=0)  
+    async with aiohttp.ClientSession(timeout=timeout) as session:
 
         async with session.get(API_URL.format(link)) as resp:
             data = await resp.json(content_type=None)
