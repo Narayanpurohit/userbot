@@ -45,7 +45,7 @@ logger = logging.getLogger("AutoUploader")
 # ================= CLIENT =================
 
 bot = TelegramClient("bot", API_ID, API_HASH).start(bot_token=BOT_TOKEN)
-bot2 = TelegramClient("bot", API_ID, API_HASH).start(bot_token=BOT_TOKEN2)
+bot2 = TelegramClient("bot2", API_ID, API_HASH).start(bot_token=BOT_TOKEN2)
 
 # ================= JSON =================
 
