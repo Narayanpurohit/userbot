@@ -18,6 +18,7 @@ from telethon.sessions import StringSession
 from config import config
 from db import create_user, is_user_exist, set_string
 from functions import generate_session_string
+from Userbot.listener import refresh_userbot
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +106,7 @@ async def login_handler(event: events.NewMessage.Event) -> None:
                 return
 
             await set_string(user_id, session_string)
+            await refresh_userbot(user_id)
             await conv.send_message("✅ Session string generated and saved securely.")
         except TimeoutError:
             await conv.send_message("⌛ Login timed out. Please run /login again.")

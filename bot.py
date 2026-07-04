@@ -12,6 +12,7 @@ from telethon import TelegramClient
 
 from config import ConfigError, config
 from db import close_db, init_db
+from Userbot.listener import start_all_userbots, stop_all_userbots
 
 LOGGER_NAME = "telegram_bot"
 logger = logging.getLogger(LOGGER_NAME)
@@ -58,8 +59,10 @@ async def main() -> None:
         await bot.start(bot_token=config.bot_token)
         me = await bot.get_me()
         logger.info("Bot started as @%s (%s)", me.username, me.id)
+        await start_all_userbots()
         await bot.run_until_disconnected()
     finally:
+        await stop_all_userbots()
         await bot.disconnect()
         await close_db()
         logger.info("Bot stopped")

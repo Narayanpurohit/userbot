@@ -9,7 +9,9 @@ A fully asynchronous Telegram bot built with Python 3.11+, Telethon, Motor, and 
 - Auto-loading plugin architecture.
 - `/start`, `/login`, and `/settings` plugins.
 - Telethon StringSession generation with OTP and 2FA handling.
-- Inline settings for auto chats and log channel management.
+- Inline settings for auto chats, log channel, and message save types.
+- Userbot listeners that monitor configured chats from saved user sessions.
+- Async media download, metadata extraction, log-channel upload, and cleanup.
 - Production-oriented logging and exception handling.
 
 ## Project structure
@@ -26,6 +28,13 @@ plugins/
   start.py
   login.py
   settings.py
+Userbot/
+  __init__.py
+  init.py
+  listener.py
+  metadata.py
+  sender.py
+  helpers.py
 ```
 
 ## Requirements
@@ -65,7 +74,26 @@ python bot.py
 
 - `/start` - creates a user record with default values and sends a welcome message. Private chats only.
 - `/login` - starts an interactive login flow and stores a Telethon StringSession.
-- `/settings` - opens inline settings for auto chats and log channel.
+- `/settings` - opens inline settings for auto chats, log channel, and save types.
+
+## Save types
+
+Every user has the following save-type flags, defaulting to `True`:
+
+- `text`
+- `photo`
+- `video`
+- `audio`
+- `file`
+- `gif`
+
+The **Save Types** settings menu toggles these values with CallbackQuery buttons and refreshes the same inline message.
+
+## Userbot listener
+
+When a user has a saved session string, at least one auto chat, and a log channel, the userbot listener monitors the configured chats. Enabled message types are downloaded asynchronously, metadata is extracted, media is sent to the configured log channel, and temporary files are removed after upload.
+
+Plain text messages are copied to the log channel with source chat ID, sender ID, message ID, date, and original text.
 
 ## Plugin development
 
